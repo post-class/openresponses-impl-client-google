@@ -21,7 +21,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules"
 ]
 dependencies = [
-    "google>=2.29.0",
+    "google-genai>=1.72.0",
     "openresponses-impl-core>=0.1.0",
 ]
 
@@ -29,16 +29,18 @@ dependencies = [
 Homepage = "https://github.com/post-class/openresponses-impl-client-google"
 Repository = "https://github.com/post-class/openresponses-impl-client-google"
 
-[dependency-groups]
-dev = [
-    "build>=1.4.0",
-    "pytest>=8.3.0",
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.15.7",
-    "twine>=6.2.0",
-]
+
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["test"]
+
+[dependency-groups]
+dev = [
+    "build>=1.4.3",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.10",
+    "twine>=6.2.0",
+]

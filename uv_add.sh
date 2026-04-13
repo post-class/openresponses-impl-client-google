@@ -61,10 +61,10 @@ export UV_CACHE_DIR="${SCRIPT_DIR}/.uv_cache"
 mkdir -p "${UV_CACHE_DIR}"
 
 # main
-uv add fastapi "uvicorn[standard]" openai pydantic pydantic-settings python-dotenv pyyaml "langfuse<3" python-multipart openresponses-impl-client-openai mcp
+uv add google-genai openresponses-impl-core
 
 # dev dependencies
-uv add --dev pytest pytest-asyncio
+uv add --dev build pytest pytest-asyncio pytest-cov ruff twine
 
 # 追加後の lockfile を監査し、脆弱性や adverse status があれば失敗させる
 uv audit --locked --preview-features audit
