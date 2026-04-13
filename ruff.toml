@@ -1,0 +1,189 @@
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+    "*.md",
+]
+
+# Same as Black.
+line-length = 100
+indent-width = 4
+
+# Assume Python 3.12
+target-version = "py312"
+
+[lint]
+# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
+# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
+# McCabe complexity (`C901`) by default.
+select = ["ALL"]
+ignore = [
+    # Missing type annotation
+    "ANN001",
+    "ANN002",
+    "ANN003",
+
+    # Missing return type annotation
+    "ANN201",
+    "ANN202",
+    "ANN204",
+
+    # Missing return type annotation for classmethod
+    "ANN206",
+
+    # Unused function argument
+    "ARG001",
+
+    # blind-except
+    "BLE001",
+
+    # Trailing comma missingRuff
+    "COM812",
+
+    # Missing docstring in public package
+    "D104",
+
+    # Missing docstring in `__init__`
+    "D107",
+
+    # No blank lines allowed after function docstring
+    "D202",
+
+    "D400",
+
+    # Disable enforcement of period at end of docstring
+    "D415",
+
+    # Missing argument descriptions in the docstring
+    "D417",
+
+    # line too long
+    #"E501",
+
+    # Allow commented-out code
+    "ERA001",
+
+    # Exception must not use a string literal, assign to variable first
+    "EM101",
+
+    # Boolean-typed positional argument in function definitionRuff
+    "FBT001",
+    "FBT002",
+
+    # Logging statement uses f-string
+    "G004",
+
+    # Logging `.exception(...)` should be used instead of `.error(..., exc_info=True)`
+    "G201",
+
+    # No configuration needed for __init__.py
+    "INP001",
+
+    # Variable `GL` in function should be lowercase
+    "N806",
+
+    # Exception name `AppException` should be named with an Error
+    "N818",
+
+    # too-many-arguments
+    "PLR0913",
+
+    # Using the global statement to update
+    "PLW0603",
+
+    # manual-list-comprehension (PERF401)
+    "PERF401", 
+
+    # Allow indirect return
+    "RET504",
+
+    # Unnecessary `elif` after `break`
+    "RET508",
+
+    # Mutable class attributes should be annotated with `typing.ClassVar`Ruff
+    "RUF012",
+
+    # if-else-block-instead-of-if-exp (SIM108)
+    "SIM108",
+
+    # Allow use of print()
+    "T201",
+
+    # missing-todo-author (TD002)
+    "TD002",
+    "TD003",
+
+    # Avoid specifying long messages outside the exception class
+    "TRY003",
+
+    # Abstract `raise` to an inner function
+    "TRY301",
+
+    # Use `logging.exception` instead of `logging.error`
+    "TRY400",
+    "TRY401",
+
+
+]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+
+[lint.pylint]
+max-statements = 100
+
+[format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "lf"
+
+# Enable auto-formatting of code examples in docstrings. Markdown,
+# reStructuredText code/literal blocks and doctests are all supported.
+#
+# This is currently disabled by default, but it is planned for this
+# to be opt-out in the future.
+docstring-code-format = false
+
+# Set the line length limit used when formatting code snippets in
+# docstrings.
+#
+# This only has an effect when the `docstring-code-format` setting is
+# enabled.
+docstring-code-line-length = "dynamic"
