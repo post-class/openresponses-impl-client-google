@@ -7,7 +7,7 @@ import sys
 from typing import Any
 
 import pytest
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 # src 配下を import path に追加（pytest 実行時の互換確保）
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -71,11 +71,13 @@ class TestGeminiResponseModelUtil:
                         "id": "call_1",
                         "name": "lookup_weather",
                         "args": {"city": "Tokyo"},
-                    }
+                    },
+                    "thought_signature": "c2lnbmF0dXJlLTEyMw",
                 }
             ]
         )
         cache: dict[str, str] = {}
+        thought_signature_cache: dict[str, str] = {}
 
         result = GeminiResponseModelUtil.parse_response(
             payload=payload,
@@ -83,10 +85,54 @@ class TestGeminiResponseModelUtil:
             model="gemini-3-flash-preview",
             default_response_id="fallback_resp",
             call_name_by_call_id=cache,
+            thought_signature_by_call_id=thought_signature_cache,
         )
 
         assert result.output[0].root.type == "function_call"
         assert cache["call_1"] == "lookup_weather"
+        assert thought_signature_cache["call_1"] == "c2lnbmF0dXJlLTEyMw"
+
+    def test_parse_response_with_json_schema_text_config(self) -> None:
+        payload = build_gemini_response_payload()
+
+        result = GeminiResponseModelUtil.parse_response(
+            payload=payload,
+            request_payload={
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "fruit_response",
+                        "schema": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                        },
+                    }
+                }
+            },
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        assert result.text.format.type == "json_schema"
+        assert result.text.format.name == "fruit_response"
+        assert result.text.format.description is None
+        assert result.text.format.schema_ is None
+        assert result.text.format.strict is False
+
+    def test_parse_response_with_reasoning_config_defaults_summary_to_none(self) -> None:
+        payload = build_gemini_response_payload()
+
+        result = GeminiResponseModelUtil.parse_response(
+            payload=payload,
+            request_payload={"reasoning": {"effort": "low"}},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        assert result.reasoning is not None
+        assert result.reasoning.effort is not None
+        assert result.reasoning.effort.value == "low"
+        assert result.reasoning.summary is None
 
     def test_parse_response_with_max_tokens_becomes_incomplete(self) -> None:
         payload = build_gemini_response_payload(candidate_overrides={"finish_reason": "MAX_TOKENS"})

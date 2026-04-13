@@ -211,6 +211,32 @@ class TestGeminiResponsesClientBuildRequest:
         assert content.parts[0].function_response is not None
         assert content.parts[0].function_response.name == "lookup_weather"
 
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_convert_function_call_uses_cached_thought_signature(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        client._thought_signature_by_call_id["call_1"] = "c2lnbmF0dXJlLTEyMw"
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "lookup_weather",
+                        "arguments": "{\"city\":\"Tokyo\"}",
+                    }
+                ]
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        content = kwargs["contents"][0]
+        assert content.parts[0].function_call is not None
+        assert content.parts[0].thought_signature == b"signature-123"
+
 
 class TestGeminiResponsesClientCreateResponse:
     """Tests for response creation methods."""
@@ -247,7 +273,8 @@ class TestGeminiResponsesClientCreateResponse:
                         "id": "call_1",
                         "name": "lookup_weather",
                         "args": {"city": "Tokyo"},
-                    }
+                    },
+                    "thought_signature": "c2lnbmF0dXJlLTEyMw",
                 }
             ]
         )
@@ -266,6 +293,7 @@ class TestGeminiResponsesClientCreateResponse:
 
         assert result.output[0].root.type == "function_call"
         assert client._call_name_by_call_id["call_1"] == "lookup_weather"
+        assert client._thought_signature_by_call_id["call_1"] == "c2lnbmF0dXJlLTEyMw"
 
     @pytest.mark.asyncio
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")

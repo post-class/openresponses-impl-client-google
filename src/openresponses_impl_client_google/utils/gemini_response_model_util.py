@@ -23,6 +23,7 @@ class GeminiResponseModelUtil:
         model: str,
         default_response_id: str,
         call_name_by_call_id: dict[str, str] | None = None,
+        thought_signature_by_call_id: dict[str, str] | None = None,
         completed_at: int | None = None,
         status_override: str | None = None,
         created_at_override: int | None = None,
@@ -36,6 +37,7 @@ class GeminiResponseModelUtil:
             model=model,
             default_response_id=default_response_id,
             call_name_by_call_id=call_name_by_call_id,
+            thought_signature_by_call_id=thought_signature_by_call_id,
             completed_at=completed_at,
             status_override=status_override,
             created_at_override=created_at_override,
@@ -50,6 +52,7 @@ class GeminiResponseModelUtil:
         model: str,
         default_response_id: str,
         call_name_by_call_id: dict[str, str] | None = None,
+        thought_signature_by_call_id: dict[str, str] | None = None,
         completed_at: int | None = None,
         status_override: str | None = None,
         created_at_override: int | None = None,
@@ -65,6 +68,7 @@ class GeminiResponseModelUtil:
             payload=payload,
             response_id=response_id,
             call_name_by_call_id=call_name_by_call_id,
+            thought_signature_by_call_id=thought_signature_by_call_id,
         )
         status, incomplete_details, error = GeminiResponseModelUtil._derive_status(
             payload=payload,
@@ -108,7 +112,7 @@ class GeminiResponseModelUtil:
             "frequency_penalty": request_dict.get("frequency_penalty", 0.0),
             "top_logprobs": request_dict.get("top_logprobs", 0),
             "temperature": request_dict.get("temperature", 1.0),
-            "reasoning": request_dict.get("reasoning"),
+            "reasoning": GeminiResponseModelUtil._resolve_reasoning_config(request_dict=request_dict),
             "usage": GeminiResponseModelUtil._build_usage(payload.get("usage_metadata")),
             "max_output_tokens": request_dict.get("max_output_tokens"),
             "max_tool_calls": request_dict.get("max_tool_calls"),
@@ -126,6 +130,7 @@ class GeminiResponseModelUtil:
         payload: dict[str, Any],
         response_id: str,
         call_name_by_call_id: dict[str, str] | None = None,
+        thought_signature_by_call_id: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         candidate = GeminiResponseModelUtil._get_first_candidate(payload=payload)
         parts = GeminiResponseModelUtil._get_candidate_parts(candidate=candidate)
@@ -194,6 +199,13 @@ class GeminiResponseModelUtil:
                 )
                 if call_name_by_call_id is not None:
                     call_name_by_call_id[call_id] = function_name
+                thought_signature = part.get("thought_signature")
+                if (
+                    thought_signature_by_call_id is not None
+                    and isinstance(thought_signature, str)
+                    and thought_signature
+                ):
+                    thought_signature_by_call_id[call_id] = thought_signature
 
         return output_items
 
@@ -386,9 +398,31 @@ class GeminiResponseModelUtil:
 
     @staticmethod
     def _resolve_text_config(*, request_dict: dict[str, Any]) -> dict[str, Any]:
-        if request_dict.get("text") is not None:
-            return request_dict["text"]
+        text_config = request_dict.get("text")
+        if isinstance(text_config, dict):
+            normalized = dict(text_config)
+            format_config = normalized.get("format")
+            if isinstance(format_config, dict) and format_config.get("type") == "json_schema":
+                normalized["format"] = {
+                    "type": "json_schema",
+                    "name": format_config.get("name") or "json_schema",
+                    "description": format_config.get("description"),
+                    "schema": None,
+                    "strict": bool(format_config.get("strict", False)),
+                }
+            normalized.setdefault("verbosity", None)
+            return normalized
         return {"format": {"type": "text"}, "verbosity": None}
+
+    @staticmethod
+    def _resolve_reasoning_config(*, request_dict: dict[str, Any]) -> dict[str, Any] | None:
+        reasoning_config = request_dict.get("reasoning")
+        if not isinstance(reasoning_config, dict):
+            return reasoning_config
+        return {
+            "effort": reasoning_config.get("effort"),
+            "summary": reasoning_config.get("summary"),
+        }
 
     @staticmethod
     def _get_first_candidate(*, payload: dict[str, Any]) -> dict[str, Any] | None:

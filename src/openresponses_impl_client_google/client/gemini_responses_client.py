@@ -63,6 +63,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         self._api_key = google_api_key
         self._client = self._create_client()
         self._call_name_by_call_id: dict[str, str] = {}
+        self._thought_signature_by_call_id: dict[str, str] = {}
         self._response_counter = 0
 
     @override
@@ -94,6 +95,7 @@ class GeminiResponsesClient(BaseResponsesClient):
             model=self._model,
             default_response_id=self._next_response_id(),
             call_name_by_call_id=self._call_name_by_call_id,
+            thought_signature_by_call_id=self._thought_signature_by_call_id,
             completed_at=int(time.time()),
         )
 
@@ -201,12 +203,20 @@ class GeminiResponsesClient(BaseResponsesClient):
             call_id = item_dict.get("call_id") or f"call_input_{len(self._call_name_by_call_id) + 1}"
             arguments = self._parse_function_arguments(item_dict.get("arguments"))
             self._call_name_by_call_id[call_id] = function_name
-            function_call_part = types.Part(
-                function_call=types.FunctionCall(
+            function_call_part_kwargs: dict[str, Any] = {
+                "function_call": types.FunctionCall(
                     id=call_id,
                     name=function_name,
                     args=arguments,
                 )
+            }
+            thought_signature = self._thought_signature_by_call_id.get(call_id)
+            if thought_signature:
+                function_call_part_kwargs["thought_signature"] = self._decode_thought_signature(
+                    value=thought_signature
+                )
+            function_call_part = types.Part(
+                **function_call_part_kwargs,
             )
             return types.ModelContent(parts=[function_call_part])
 
@@ -529,6 +539,7 @@ class GeminiResponsesClient(BaseResponsesClient):
                     model=self._model,
                     default_response_id=fallback_response_id,
                     call_name_by_call_id=self._call_name_by_call_id,
+                    thought_signature_by_call_id=self._thought_signature_by_call_id,
                     status_override="in_progress",
                     completed_at=None,
                 )
@@ -558,6 +569,7 @@ class GeminiResponsesClient(BaseResponsesClient):
                     model=self._model,
                     default_response_id=fallback_response_id,
                     call_name_by_call_id=self._call_name_by_call_id,
+                    thought_signature_by_call_id=self._thought_signature_by_call_id,
                     completed_at=int(time.time()),
                 )
                 yield ResponseCreatedStreamingEvent(
@@ -573,6 +585,7 @@ class GeminiResponsesClient(BaseResponsesClient):
                     model=self._model,
                     default_response_id=fallback_response_id,
                     call_name_by_call_id=self._call_name_by_call_id,
+                    thought_signature_by_call_id=self._thought_signature_by_call_id,
                     completed_at=int(time.time()),
                 )
 
@@ -1032,6 +1045,13 @@ class GeminiResponsesClient(BaseResponsesClient):
             return mime_type, unquote_to_bytes(encoded)
         except (binascii.Error, ValueError) as exc:
             raise ValueError(f"Invalid data URI payload: {exc}") from exc
+
+    def _decode_thought_signature(self, *, value: str) -> bytes:
+        padded_value = value + ("=" * (-len(value) % 4))
+        try:
+            return base64.urlsafe_b64decode(padded_value)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(f"Invalid thought_signature payload: {exc}") from exc
 
     def _guess_mime_type(self, *, uri: str, filename: str | None = None) -> str:
         mime_type, _ = mimetypes.guess_type(filename or uri)

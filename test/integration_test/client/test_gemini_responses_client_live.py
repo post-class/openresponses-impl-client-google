@@ -86,7 +86,9 @@ def _extract_first_assistant_message_text(response: object) -> str:
         item = item_field.root
         if getattr(item, "type", None) != "message":
             continue
-        if getattr(item, "role", None) != "assistant":
+        role = getattr(item, "role", None)
+        role_value = getattr(role, "value", role)
+        if role_value != "assistant":
             continue
         for content_part in getattr(item, "content", []):
             text = getattr(content_part, "text", None)
