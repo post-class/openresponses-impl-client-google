@@ -87,12 +87,97 @@ OpenResponsesの`function_call_output`は`call_id`のみを保持するため、
 
 ### メディア入力はベストエフォートで正規化されます
 
-`input_image`、`input_file`、`input_video`について：
+OpenResponsesの`input_image`、`input_file`、`input_video`は、以下のように自動的にGemini APIの形式に変換されます：
 
-- `data:` URIはデコードされ、インラインバイトとして送信されます
-- その他のURIはURIベースのパーツとして送信されます
-- MIMEタイプはURIまたはファイル名から推測されます
-- フォールバックのMIMEタイプは`application/octet-stream`です
+#### 1. Data URI形式（`data:`で始まるURI）
+```python
+# 例: data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...
+Message(
+    role="user",
+    content=[
+        InputImage(image_url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...")
+    ]
+)
+```
+- Base64エンコードされたデータをデコードして、バイト列として送信
+- Gemini APIの`types.Part.from_bytes(data=..., mime_type=...)`を使用
+- **用途**: 小さい画像・動画をリクエストに直接埋め込む場合
+
+#### 2. URI形式（GCS、YouTube、HTTPSなど）
+```python
+# 例: gs://bucket/video.mp4, https://example.com/image.jpg
+Message(
+    role="user",
+    content=[
+        InputVideo(video_url="gs://my-bucket/video.mp4")
+    ]
+)
+```
+- URIをそのまま参照として送信
+- Gemini APIの`types.Part.from_uri(file_uri=..., mime_type=...)`を使用
+- **用途**: GCS上のファイル、YouTube動画、外部URLの参照
+
+#### 3. MIMEタイプの自動推測
+- URIやファイル名の拡張子から自動的にMIMEタイプを推測（例: `.mp4` → `video/mp4`）
+- 推測できない場合は`application/octet-stream`にフォールバック
+- 警告ログが出力されます
+
+#### 4. Files APIでアップロードしたファイル
+```python
+# Google GenAI SDKで事前アップロード
+video_file = genai_client.files.upload(file="path/to/video.mp4")
+# そのままinputに渡せる
+payload = CreateResponseBody(input=[video_file, ...])
+```
+- アップロード済みの`File`オブジェクトをそのまま`input`に含められる
+- 内部的にGemini APIが適切に処理
+
+#### 動画入力の推奨方法（Files API）
+
+長尺・大容量の動画ファイルを扱う場合は、Files APIで事前にアップロードしてから本ライブラリを使用することを推奨します：
+
+```python
+from google import genai
+from openresponses_impl_core.models.openresponses_models import CreateResponseBody, Message
+from openresponses_impl_client_google.client.gemini_responses_client import GeminiResponsesClient
+import time
+
+# 1. Google GenAI SDKで動画をアップロード
+genai_client = genai.Client()
+video_file = genai_client.files.upload(file="path/to/video.mp4")
+
+# 2. 処理完了まで待機（動画は処理時間が必要な場合がある）
+while True:
+    video_file = genai_client.files.get(name=video_file.name)
+    if video_file.state != "PROCESSING":
+        break
+    time.sleep(2)
+
+# 3. OpenResponsesクライアントで解析
+responses_client = GeminiResponsesClient(
+    model="gemini-3-flash-preview",
+    google_api_key="YOUR_API_KEY",
+)
+
+payload = CreateResponseBody(
+    input=[
+        video_file,  # アップロード済みのFileオブジェクトを直接渡す
+        Message(role="user", content="この動画を要約して、重要ポイントを箇条書きで教えてください。")
+    ],
+    stream=False,
+)
+
+response = await responses_client.create_response(payload=payload)
+print(response.output)
+
+# 4. 後片付け（任意）
+genai_client.files.delete(name=video_file.name)
+```
+
+**注意事項：**
+- Files APIでアップロードしたファイルオブジェクトは、そのまま`input`配列に含めることができます
+- 動画の処理完了（`PROCESSING` → `ACTIVE`）を待ってから使用してください
+- 小さい動画の場合は、`data:` URIやGCS URIを使用することもできます
 
 ### 推論は近似的にマッピングされます
 
