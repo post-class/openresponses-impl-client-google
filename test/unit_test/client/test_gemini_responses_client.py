@@ -151,6 +151,31 @@ class TestGeminiResponsesClientBuildRequest:
         ]
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_google_search_tool(self, mock_client_cls: MagicMock) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": "Hello",
+                "tools": [
+                    {
+                        "type": "google_search",
+                        "description": "Search the web",
+                    }
+                ],
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        config = kwargs["config"]
+        assert config is not None
+        assert config.tools is not None
+        assert len(config.tools) == 1
+        tool = config.tools[0]
+        assert tool.google_search is not None
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_build_kwargs_warns_for_previous_response_id(self, mock_client_cls: MagicMock) -> None:
         mock_client_cls.return_value = _build_mock_genai_client()
         client = GeminiResponsesClient(model="gemini-3-flash-preview")

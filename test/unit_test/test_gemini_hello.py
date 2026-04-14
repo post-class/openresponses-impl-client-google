@@ -10,7 +10,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
 from google.genai import Client
 
 # src 配下を import path に追加（pytest 実行時の互換確保）
@@ -25,7 +24,7 @@ _MODEL_ID = "gemini-3-flash-preview"
 
 def _load_env_file() -> None:
     """Load environment variables from .env file in the repository root.
-    
+
     This function reads the .env file and sets environment variables
     that are not already set in the shell environment.
     """
@@ -46,16 +45,17 @@ def _load_env_file() -> None:
 
 def _require_api_key() -> str:
     """Get API key from environment variables.
-    
+
     Priority order (as per official recommendation):
     1. GOOGLE_API_KEY
     2. GEMINI_API_KEY
-    
+
     Returns:
         str: The API key
-        
+
     Raises:
         AssertionError: If no API key is found
+
     """
     _load_env_file()
     # GOOGLE_API_KEY が優先（公式推奨）
@@ -74,13 +74,13 @@ class TestGeminiHello:
 
     def test_gemini_hello_message(self) -> None:
         """Send 'hello' message to Gemini and verify response.
-        
+
         This test:
         1. Loads API key from environment or .env file
         2. Creates a Gemini client with proper resource management
         3. Sends a simple "hello" message
         4. Verifies that a valid text response is received
-        
+
         This confirms that:
         - The API key is valid
         - The Gemini API is accessible
@@ -101,8 +101,6 @@ class TestGeminiHello:
         assert hasattr(response, "text"), "Response should have text attribute"
         assert response.text, "Response text should not be empty"
         assert isinstance(response.text, str), "Response text should be a string"
-        
+
         # 追加確認：レスポンスが意味のある長さを持つことを確認
         assert len(response.text.strip()) > 0, "Response text should contain actual content"
-
-# Made with Bob

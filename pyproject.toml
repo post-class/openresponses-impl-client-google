@@ -8,13 +8,22 @@ version = "0.1.0"
 description = "Python Client library implementing the OpenResponses specification"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "Apache-2.0"
 authors = [
   { name = "rsato", email = "satookok@gmail.com" }
+]
+keywords = [
+  "openresponses",
+  "gemini",
+  "google-ai",
+  "llm",
+  "ai-client",
+  "genai",
+  "responses-api"
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
   "Operating System :: OS Independent",
@@ -30,6 +39,10 @@ Homepage = "https://github.com/post-class/openresponses-impl-client-google"
 Repository = "https://github.com/post-class/openresponses-impl-client-google"
 
 
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["openresponses_impl_client_google*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

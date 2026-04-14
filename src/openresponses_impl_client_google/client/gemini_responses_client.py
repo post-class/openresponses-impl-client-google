@@ -372,39 +372,64 @@ class GeminiResponsesClient(BaseResponsesClient):
 
         function_declarations: list[types.FunctionDeclaration] = []
         function_names: list[str] = []
+        builtin_tools: list[types.Tool] = []
 
         for tool_param in payload.tools:
             tool_root = getattr(tool_param, "root", tool_param)
             tool_dict = self._normalize_model_or_dict(value=tool_root)
-            if tool_dict.get("type") != "function":
-                logger.warning(
-                    "Gemini client ignores unsupported generic tool type: %s",
-                    tool_dict.get("type"),
+            tool_type = tool_dict.get("type")
+            if tool_type == "function":
+                function_name = tool_dict.get("name")
+                if not function_name:
+                    continue
+                function_names.append(function_name)
+                function_declarations.append(
+                    types.FunctionDeclaration(
+                        name=function_name,
+                        description=tool_dict.get("description"),
+                        parameters_json_schema=CopyUtil.deep_copy(
+                            tool_dict.get("parameters") or {"type": "object", "properties": {}}
+                        ),
+                    )
                 )
                 continue
 
-            function_name = tool_dict.get("name")
-            if not function_name:
+            builtin_tool = self._build_builtin_tool(tool_dict=tool_dict)
+            if builtin_tool is not None:
+                builtin_tools.append(builtin_tool)
                 continue
-            function_names.append(function_name)
-            function_declarations.append(
-                types.FunctionDeclaration(
-                    name=function_name,
-                    description=tool_dict.get("description"),
-                    parameters_json_schema=CopyUtil.deep_copy(
-                        tool_dict.get("parameters") or {"type": "object", "properties": {}}
-                    ),
-                )
+
+            logger.warning(
+                "Gemini client ignores unsupported generic tool type: %s",
+                tool_type,
             )
 
-        if not function_declarations:
+        if not function_declarations and not builtin_tools:
             return None, None
 
         tool_config = self._build_tool_config(
             payload=payload,
             function_names=function_names,
         )
-        return [types.Tool(function_declarations=function_declarations)], tool_config
+
+        tools: list[types.Tool] = []
+        if function_declarations:
+            tools.append(types.Tool(function_declarations=function_declarations))
+        tools.extend(builtin_tools)
+        return tools, tool_config
+
+    def _build_builtin_tool(self, *, tool_dict: dict[str, Any]) -> types.Tool | None:
+        tool_type = tool_dict.get("type")
+
+        if tool_type == "google_search":
+            google_search_kwargs: dict[str, Any] = {}
+            for field_name in ("search_types", "blocking_confidence", "exclude_domains", "time_range_filter"):
+                if field_name in tool_dict and tool_dict[field_name] is not None:
+                    google_search_kwargs[field_name] = tool_dict[field_name]
+            google_search = types.GoogleSearch(**google_search_kwargs) if google_search_kwargs else types.GoogleSearch()
+            return types.Tool(google_search=google_search)
+
+        return None
 
     def _build_tool_config(
         self,
