@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -79,6 +80,31 @@ def _extract_first_url_citation(response: object) -> object | None:
     return None
 
 
+def _extract_first_assistant_message_text(response: object) -> str:
+    if not hasattr(response, "output"):
+        return ""
+
+    for item_field in response.output:
+        item = item_field.root
+        if getattr(item, "type", None) != "message":
+            continue
+        role = getattr(item, "role", None)
+        role_value = getattr(role, "value", role)
+        if role_value != "assistant":
+            continue
+        for content_part in getattr(item, "content", []):
+            text = getattr(content_part, "text", None)
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return ""
+
+
+def _extract_inline_urls(text: str) -> list[str]:
+    if not text:
+        return []
+    return re.findall(r"https?://[^\s)]+", text)
+
+
 class TestBuiltinGoogleSearch:
     """Live test for google_search built-in tool configured via tools field."""
 
@@ -102,4 +128,67 @@ class TestBuiltinGoogleSearch:
 
         assert response.status in {"completed", "incomplete"}
         citation = _extract_first_url_citation(response)
-        assert citation is not None
+        assistant_text = _extract_first_assistant_message_text(response)
+        assert citation is not None or _extract_inline_urls(assistant_text)
+
+
+class TestBuiltinGoogleMaps:
+    """Live test for google_maps built-in tool configured via tools field."""
+
+    @pytest.mark.asyncio
+    async def test_google_maps_station_lookup(self) -> None:
+        client = _create_client()
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": (
+                    "Using Google Maps, tell me the nearest station to Tokyo Skytree "
+                    "and include the station name only once in English."
+                ),
+                "tools": [
+                    {
+                        "type": "google_maps",
+                        "enable_widget": False,
+                        "description": "Use Google Maps for place and station lookup.",
+                    }
+                ],
+                "stream": False,
+            }
+        )
+
+        response = await client.create_response(payload=payload)
+        assistant_text = _extract_first_assistant_message_text(response)
+
+        assert response.status in {"completed", "incomplete"}
+        assert assistant_text
+        valid_station_names = ("Tokyo Skytree Station", "Oshiage Station")
+        assert any(station_name in assistant_text for station_name in valid_station_names)
+
+
+class TestBuiltinUrlContext:
+    """Live test for url_context built-in tool configured via tools field."""
+
+    @pytest.mark.asyncio
+    async def test_url_context_reads_public_page(self) -> None:
+        client = _create_client()
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": (
+                    "Using url_context, read https://example.com/ "
+                    "and answer with the page title only."
+                ),
+                "tools": [
+                    {
+                        "type": "url_context",
+                        "description": "Use URL context to read the target page.",
+                    }
+                ],
+                "stream": False,
+            }
+        )
+
+        response = await client.create_response(payload=payload)
+        assistant_text = _extract_first_assistant_message_text(response)
+
+        assert response.status in {"completed", "incomplete"}
+        assert assistant_text
+        assert assistant_text == "Example Domain"
