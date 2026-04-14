@@ -149,6 +149,7 @@ class TestGeminiResponsesClientBuildRequest:
         assert config.tool_config.function_calling_config.allowed_function_names == [
             "lookup_weather"
         ]
+        assert config.tool_config.include_server_side_tool_invocations is None
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_build_kwargs_with_google_search_tool(self, mock_client_cls: MagicMock) -> None:
@@ -174,6 +175,51 @@ class TestGeminiResponsesClientBuildRequest:
         assert len(config.tools) == 1
         tool = config.tools[0]
         assert tool.google_search is not None
+        assert config.tool_config is not None
+        assert config.tool_config.include_server_side_tool_invocations is True
+        assert config.tool_config.function_calling_config is None
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_function_and_builtin_tools(self, mock_client_cls: MagicMock) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": "Hello",
+                "tools": [
+                    {
+                        "type": "function",
+                        "name": "lookup_weather",
+                        "description": "Lookup weather",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                        },
+                    },
+                    {
+                        "type": "google_search",
+                        "description": "Search the web",
+                    },
+                ],
+                "tool_choice": {
+                    "type": "function",
+                    "name": "lookup_weather",
+                },
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        config = kwargs["config"]
+        assert config is not None
+        assert config.tools is not None
+        assert len(config.tools) == 2
+        assert config.tool_config is not None
+        assert config.tool_config.function_calling_config is not None
+        assert config.tool_config.function_calling_config.allowed_function_names == [
+            "lookup_weather"
+        ]
+        assert config.tool_config.include_server_side_tool_invocations is True
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_build_kwargs_warns_for_previous_response_id(self, mock_client_cls: MagicMock) -> None:

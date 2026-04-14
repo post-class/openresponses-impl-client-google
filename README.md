@@ -248,6 +248,7 @@ These fields are preserved in the normalized `ResponseResource` when possible, b
 
 - generic tools
   - Gemini built-in tools are converted dynamically when `tool.type` matches a supported `google.genai.types.Tool` field with object-style configuration.
+  - When at least one Gemini built-in tool is present, the client automatically sets `tool_config.include_server_side_tool_invocations = true`.
   - Built-in tool config follows the OpenAI-style flat request shape, for example:
     - `{"type": "google_maps", "enable_widget": true}`
     - `{"type": "file_search", "file_search_store_names": ["fileSearchStores/STORE_ID"], "top_k": 5}`

@@ -84,6 +84,8 @@ class TestGeminiBuiltinToolRequestShape:
                 "enable_widget": True,
             }
         }
+        assert config.tool_config is not None
+        assert config.tool_config.include_server_side_tool_invocations is True
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_build_kwargs_with_object_style_builtin_tools(
@@ -121,6 +123,8 @@ class TestGeminiBuiltinToolRequestShape:
                 }
             },
         ]
+        assert config.tool_config is not None
+        assert config.tool_config.include_server_side_tool_invocations is True
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_build_kwargs_warns_for_unknown_generic_tool_type(

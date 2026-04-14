@@ -410,6 +410,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         tool_config = self._build_tool_config(
             payload=payload,
             function_names=function_names,
+            include_server_side_tool_invocations=bool(builtin_tools),
         )
 
         tools: list[types.Tool] = []
@@ -472,60 +473,64 @@ class GeminiResponsesClient(BaseResponsesClient):
         *,
         payload: CreateResponseBody,
         function_names: list[str],
+        include_server_side_tool_invocations: bool,
     ) -> types.ToolConfig | None:
-        if not payload.tool_choice:
-            return None
-
-        tool_choice = payload.tool_choice.model_dump(mode="json")
         function_calling_config: types.FunctionCallingConfig | None = None
 
-        if isinstance(tool_choice, str):
-            normalized_choice = tool_choice.lower()
-            if normalized_choice == "none":
-                function_calling_config = types.FunctionCallingConfig(mode="NONE")
-            elif normalized_choice == "auto":
-                function_calling_config = types.FunctionCallingConfig(mode="AUTO")
-            elif normalized_choice == "required":
-                function_calling_config = types.FunctionCallingConfig(
-                    mode="ANY",
-                    allowed_function_names=function_names,
-                )
-            else:
-                logger.warning("Gemini client ignores unsupported string tool_choice: %s", tool_choice)
-        elif isinstance(tool_choice, dict):
-            if not tool_choice:
-                function_calling_config = types.FunctionCallingConfig(
-                    mode="ANY",
-                    allowed_function_names=function_names,
-                )
-            elif tool_choice.get("type") == "function":
-                function_name = tool_choice.get("name")
-                if function_name:
+        if payload.tool_choice:
+            tool_choice = payload.tool_choice.model_dump(mode="json")
+
+            if isinstance(tool_choice, str):
+                normalized_choice = tool_choice.lower()
+                if normalized_choice == "none":
+                    function_calling_config = types.FunctionCallingConfig(mode="NONE")
+                elif normalized_choice == "auto":
+                    function_calling_config = types.FunctionCallingConfig(mode="AUTO")
+                elif normalized_choice == "required":
                     function_calling_config = types.FunctionCallingConfig(
                         mode="ANY",
-                        allowed_function_names=[function_name],
-                    )
-            elif tool_choice.get("type") == "allowed_tools":
-                allowed_function_names = [
-                    entry.get("name")
-                    for entry in tool_choice.get("tools", [])
-                    if isinstance(entry, dict) and entry.get("type") == "function" and entry.get("name")
-                ]
-                if allowed_function_names:
-                    function_calling_config = types.FunctionCallingConfig(
-                        mode="ANY",
-                        allowed_function_names=allowed_function_names,
+                        allowed_function_names=function_names,
                     )
                 else:
-                    logger.warning(
-                        "Gemini client ignores allowed_tools without function entries."
+                    logger.warning("Gemini client ignores unsupported string tool_choice: %s", tool_choice)
+            elif isinstance(tool_choice, dict):
+                if not tool_choice:
+                    function_calling_config = types.FunctionCallingConfig(
+                        mode="ANY",
+                        allowed_function_names=function_names,
                     )
-            else:
-                logger.warning("Gemini client ignores unsupported tool_choice payload: %s", tool_choice)
+                elif tool_choice.get("type") == "function":
+                    function_name = tool_choice.get("name")
+                    if function_name:
+                        function_calling_config = types.FunctionCallingConfig(
+                            mode="ANY",
+                            allowed_function_names=[function_name],
+                        )
+                elif tool_choice.get("type") == "allowed_tools":
+                    allowed_function_names = [
+                        entry.get("name")
+                        for entry in tool_choice.get("tools", [])
+                        if isinstance(entry, dict) and entry.get("type") == "function" and entry.get("name")
+                    ]
+                    if allowed_function_names:
+                        function_calling_config = types.FunctionCallingConfig(
+                            mode="ANY",
+                            allowed_function_names=allowed_function_names,
+                        )
+                    else:
+                        logger.warning(
+                            "Gemini client ignores allowed_tools without function entries."
+                        )
+                else:
+                    logger.warning("Gemini client ignores unsupported tool_choice payload: %s", tool_choice)
 
-        if function_calling_config is None:
+        if function_calling_config is None and not include_server_side_tool_invocations:
             return None
-        return types.ToolConfig(function_calling_config=function_calling_config)
+
+        return types.ToolConfig(
+            function_calling_config=function_calling_config,
+            include_server_side_tool_invocations=include_server_side_tool_invocations or None,
+        )
 
     def _normalize_text_config(self, *, payload: CreateResponseBody) -> dict[str, Any]:
         response_mime_type = "text/plain"
