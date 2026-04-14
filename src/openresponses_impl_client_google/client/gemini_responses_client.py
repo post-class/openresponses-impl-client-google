@@ -8,7 +8,7 @@ import logging
 import mimetypes
 import time
 from collections.abc import AsyncIterator
-from typing import Any, override
+from typing import Any, get_args, get_origin, override
 from urllib.parse import unquote_to_bytes
 
 from google import genai
@@ -420,15 +420,51 @@ class GeminiResponsesClient(BaseResponsesClient):
 
     def _build_builtin_tool(self, *, tool_dict: dict[str, Any]) -> types.Tool | None:
         tool_type = tool_dict.get("type")
+        if not isinstance(tool_type, str):
+            return None
 
-        if tool_type == "google_search":
-            google_search_kwargs: dict[str, Any] = {}
-            for field_name in ("search_types", "blocking_confidence", "exclude_domains", "time_range_filter"):
-                if field_name in tool_dict and tool_dict[field_name] is not None:
-                    google_search_kwargs[field_name] = tool_dict[field_name]
-            google_search = types.GoogleSearch(**google_search_kwargs) if google_search_kwargs else types.GoogleSearch()
-            return types.Tool(google_search=google_search)
+        supported_builtin_tool_types = self._get_supported_builtin_tool_types()
+        if tool_type not in supported_builtin_tool_types:
+            return None
 
+        builtin_tool_payload = CopyUtil.deep_copy(
+            {
+                key: value
+                for key, value in tool_dict.items()
+                if key not in {"type", "description"} and value is not None
+            }
+        )
+        try:
+            return types.Tool(**{tool_type: builtin_tool_payload})
+        except Exception as exc:
+            error_message = f"Invalid Gemini builtin tool config for {tool_type!r}."
+            raise ValueError(error_message) from exc
+
+    def _get_supported_builtin_tool_types(self) -> set[str]:
+        supported_builtin_tool_types: set[str] = set()
+        for field_name, field_info in types.Tool.model_fields.items():
+            if field_name == "function_declarations":
+                continue
+            model_type = self._resolve_builtin_tool_model_type(annotation=field_info.annotation)
+            if model_type is None:
+                continue
+            supported_builtin_tool_types.add(field_name)
+        return supported_builtin_tool_types
+
+    def _resolve_builtin_tool_model_type(self, *, annotation: Any) -> type[Any] | None:
+        if hasattr(annotation, "model_fields"):
+            return annotation
+
+        origin = get_origin(annotation)
+        if origin in {list, tuple, set, frozenset}:
+            return None
+
+        for candidate in get_args(annotation):
+            if candidate is type(None):
+                continue
+            resolved = self._resolve_builtin_tool_model_type(annotation=candidate)
+            if resolved is not None:
+                return resolved
         return None
 
     def _build_tool_config(

@@ -213,6 +213,7 @@ This client is intentionally best-effort. It keeps the OpenResponses public inte
 - plain text input
 - user / assistant message history
 - function tools
+- Gemini built-in tools expressed as OpenAI-style flat tool objects
 - non-streaming responses
 - basic streaming text responses
 - JSON-schema-style structured output via Gemini `response_json_schema`
@@ -246,8 +247,15 @@ These fields are preserved in the normalized `ResponseResource` when possible, b
   - The field is kept in normalized responses for interface compatibility only.
 
 - generic tools
-  - Only `type="function"` tools are converted.
-  - Non-function tools are ignored with warning.
+  - Gemini built-in tools are converted dynamically when `tool.type` matches a supported `google.genai.types.Tool` field with object-style configuration.
+  - Built-in tool config follows the OpenAI-style flat request shape, for example:
+    - `{"type": "google_maps", "enable_widget": true}`
+    - `{"type": "file_search", "file_search_store_names": ["fileSearchStores/STORE_ID"], "top_k": 5}`
+    - `{"type": "code_execution"}`
+  - `description` is preserved in the echoed request, but is not sent to Gemini as executable tool config.
+  - Unknown generic tool types are ignored with warning.
+  - Known Gemini built-in tool types with invalid config fail fast with `ValueError`.
+  - Built-in outputs are still normalized best-effort; dedicated loops such as computer-use action roundtrips are not yet mapped to OpenResponses-specific output items.
 
 - item types without Gemini equivalents
   - `item_reference` is ignored with warning.
@@ -310,7 +318,7 @@ This client uses warnings for non-fatal incompatibilities.
 You should expect warning logs when:
 
 - unsupported OpenResponses fields are provided
-- generic tools are provided
+- unsupported generic tool types are provided
 - unsupported item/content types are provided
 - MIME type inference falls back to `application/octet-stream`
 - `reasoning.summary` is requested
