@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openresponses-impl-client-google"
-version = "0.2.1"
+version = "0.2.2"
 description = "Python Client library implementing the OpenResponses specification"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -30,23 +30,9 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules"
 ]
 dependencies = [
-    "google-genai>=1.73.0",
-    "openresponses-impl-core>=0.2.0",
+    "google-genai>=1.73.1",
+    "openresponses-impl-core>=0.2.1",
 ]
-
-[project.urls]
-Homepage = "https://github.com/post-class/openresponses-impl-client-google"
-Repository = "https://github.com/post-class/openresponses-impl-client-google"
-
-
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["openresponses_impl_client_google*"]
-
-[tool.pytest.ini_options]
-pythonpath = ["src"]
-testpaths = ["test"]
 
 [dependency-groups]
 dev = [
@@ -57,3 +43,16 @@ dev = [
     "ruff>=0.15.10",
     "twine>=6.2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/post-class/openresponses-impl-client-google"
+Repository = "https://github.com/post-class/openresponses-impl-client-google"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["openresponses_impl_client_google*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["test"]
+

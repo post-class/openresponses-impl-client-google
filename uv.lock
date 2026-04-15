@@ -361,7 +361,7 @@ requests = [
 
 [[package]]
 name = "google-genai"
-version = "1.73.0"
+version = "1.73.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -375,9 +375,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/5f/b293b1a78a547b0dd061642a3f6087f0a52c1b723eafa58f94ccdc3e0d2a/google_genai-1.73.0.tar.gz", hash = "sha256:569395b2c225e12bcd8758b8affe1af480e0a1b1c71d652d38c705677057e05f", size = 530812, upload-time = "2026-04-13T20:40:02.642Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/d8/40f5f107e5a2976bbac52d421f04d14fc221b55a8f05e66be44b2f739fe6/google_genai-1.73.1.tar.gz", hash = "sha256:b637e3a3b9e2eccc46f27136d470165803de84eca52abfed2e7352081a4d5a15", size = 530998, upload-time = "2026-04-14T21:06:19.153Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/73/fb36ced456688c9b95a8ab49a1f408f5b3e69a589788f3eb25016002dd7a/google_genai-1.73.0-py3-none-any.whl", hash = "sha256:dfb0214b834bf977e3841de512cfb651d2fe76309f85064b80c2bc11da99d76b", size = 786072, upload-time = "2026-04-13T20:40:00.365Z" },
+    { url = "https://files.pythonhosted.org/packages/65/af/508e0528015240d710c6763f7c89ff44fab9a94a80b4377e265d692cbfd6/google_genai-1.73.1-py3-none-any.whl", hash = "sha256:af2d2287d25e42a187de19811ef33beb2e347c7e2bdb4dc8c467d78254e43a2c", size = 783595, upload-time = "2026-04-14T21:06:17.464Z" },
 ]
 
 [[package]]
@@ -572,7 +572,7 @@ wheels = [
 
 [[package]]
 name = "openresponses-impl-client-google"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
@@ -591,8 +591,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "google-genai", specifier = ">=1.73.0" },
-    { name = "openresponses-impl-core", specifier = ">=0.2.0" },
+    { name = "google-genai", specifier = ">=1.73.1" },
+    { name = "openresponses-impl-core", specifier = ">=0.2.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -607,23 +607,23 @@ dev = [
 
 [[package]]
 name = "openresponses-impl-core"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/95/e3/9d042cab673769d9949b1a04fc60c56c7c0c8c0d467ebc51328f2bce4a41/openresponses_impl_core-0.2.0.tar.gz", hash = "sha256:5971ed0ff2e6bbf565c25c43e9314c7cfd263fd2fb9abf23b2c5cfad8c728c38", size = 14118, upload-time = "2026-04-14T05:52:50.868Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/04/0d7a61a93056d55216913d93e16aa207d04d4d000afef2423896d7492ed9/openresponses_impl_core-0.2.1.tar.gz", hash = "sha256:f2fbedd6048a6f9a70212905f4b27211f78c80997d6096893be2ecfe53609596", size = 14156, upload-time = "2026-04-15T05:53:15.112Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/73/cd/eea011b692a3b5b2a0a431ff3cc4baec70cb72e28613d08dc47b010ff6d1/openresponses_impl_core-0.2.0-py3-none-any.whl", hash = "sha256:15da07a9ba57d1dc27af5ae4a0c9ab8facbe260e0977776b779612947b5ae91e", size = 14808, upload-time = "2026-04-14T05:52:49.35Z" },
+    { url = "https://files.pythonhosted.org/packages/18/f3/a3ce735fc6f9214bb1d090f38a92bb33497c4010048b74a5f658107d6c3b/openresponses_impl_core-0.2.1-py3-none-any.whl", hash = "sha256:53f4ebf1809bd68ff3c4d491d9bb7e9550244e27c34ffc7aa3673cbc51bb6ca7", size = 14850, upload-time = "2026-04-15T05:53:13.424Z" },
 ]
 
 [[package]]
 name = "packaging"
-version = "26.0"
+version = "26.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/65/ee/299d360cdc32edc7d2cf530f3accf79c4fca01e96ffc950d8a52213bd8e4/packaging-26.0.tar.gz", hash = "sha256:00243ae351a257117b6a241061796684b084ed1c516a08c48a3f7e147a9d80b4", size = 143416, upload-time = "2026-01-21T20:50:39.064Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/de/0d2b39fb4af88a0258f3bac87dfcbb48e73fbdea4a2ed0e2213f9a4c2f9a/packaging-26.1.tar.gz", hash = "sha256:f042152b681c4bfac5cae2742a55e103d27ab2ec0f3d88037136b6bfe7c9c5de", size = 215519, upload-time = "2026-04-14T21:12:49.362Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/b9/c538f279a4e237a006a2c98387d081e9eb060d203d8ed34467cc0f0b9b53/packaging-26.0-py3-none-any.whl", hash = "sha256:b36f1fef9334a5588b4166f8bcd26a14e521f2b55e6b9de3aaa80d3ff7a37529", size = 74366, upload-time = "2026-01-21T20:50:37.788Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/c2/920ef838e2f0028c8262f16101ec09ebd5969864e5a64c4c05fad0617c56/packaging-26.1-py3-none-any.whl", hash = "sha256:5d9c0669c6285e491e0ced2eee587eaf67b670d94a19e94e3984a481aba6802f", size = 95831, upload-time = "2026-04-14T21:12:47.56Z" },
 ]
 
 [[package]]

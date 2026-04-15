@@ -210,7 +210,9 @@ class GeminiResponsesClient(BaseResponsesClient):
                     args=arguments,
                 )
             }
-            thought_signature = self._thought_signature_by_call_id.get(call_id)
+            thought_signature = self._extract_google_thought_signature(item_dict.get("extensions"))
+            if not thought_signature:
+                thought_signature = self._thought_signature_by_call_id.get(call_id)
             if thought_signature:
                 function_call_part_kwargs["thought_signature"] = self._decode_thought_signature(
                     value=thought_signature
@@ -1118,6 +1120,17 @@ class GeminiResponsesClient(BaseResponsesClient):
             return base64.urlsafe_b64decode(padded_value)
         except (binascii.Error, ValueError) as exc:
             raise ValueError(f"Invalid thought_signature payload: {exc}") from exc
+
+    def _extract_google_thought_signature(self, extensions: Any) -> str | None:
+        if not isinstance(extensions, dict):
+            return None
+        google_extensions = extensions.get("google")
+        if not isinstance(google_extensions, dict):
+            return None
+        thought_signature = google_extensions.get("thought_signature")
+        if isinstance(thought_signature, str) and thought_signature:
+            return thought_signature
+        return None
 
     def _guess_mime_type(self, *, uri: str, filename: str | None = None) -> str:
         mime_type, _ = mimetypes.guess_type(filename or uri)
