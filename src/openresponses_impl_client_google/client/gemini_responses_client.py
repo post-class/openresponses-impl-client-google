@@ -44,6 +44,7 @@ from openresponses_impl_client_google.utils.gemini_response_model_util import (
 )
 
 logger = logging.getLogger(__name__)
+_DEBUG_LOG_MAX_TEXT_LENGTH = 1000
 
 
 class GeminiResponsesClient(BaseResponsesClient):
@@ -88,7 +89,9 @@ class GeminiResponsesClient(BaseResponsesClient):
             payload=request_payload,
             extra_params=extra_params,
         )
+        self._debug_log_payload("Gemini request payload:", request_kwargs)
         response = await self._client.aio.models.generate_content(**request_kwargs)
+        self._debug_log_payload("Gemini response payload:", response)
         return GeminiResponseModelUtil.parse_response(
             payload=response,
             request_payload=request_payload,
@@ -110,6 +113,7 @@ class GeminiResponsesClient(BaseResponsesClient):
             payload=request_payload,
             extra_params=extra_params,
         )
+        self._debug_log_payload("Gemini request payload:", request_kwargs)
         return self._iter_stream_events(
             request_payload=request_payload,
             request_kwargs=request_kwargs,
@@ -597,6 +601,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         try:
             async for chunk in stream:
                 normalized_chunk = GeminiResponseModelUtil._normalize_payload(payload=chunk)
+                self._debug_log_payload("Gemini stream chunk payload:", normalized_chunk)
                 aggregate_payload = self._merge_stream_payloads(
                     existing=aggregate_payload,
                     incoming=normalized_chunk,
@@ -657,6 +662,10 @@ class GeminiResponsesClient(BaseResponsesClient):
                     completed_at=int(time.time()),
                 )
 
+            self._debug_log_payload(
+                "Gemini stream aggregated payload:",
+                aggregate_payload,
+            )
             terminal_output_events, sequence_number = self._build_terminal_output_events(
                 response=final_response,
                 sequence_number=sequence_number,
@@ -1153,6 +1162,58 @@ class GeminiResponsesClient(BaseResponsesClient):
         if isinstance(value, dict):
             return value
         raise ValueError(f"Unsupported value type: {type(value).__name__}")
+
+    def _debug_log_payload(self, message: str, payload: Any) -> None:
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        logger.debug(
+            "%s %s",
+            message,
+            json.dumps(
+                self._serialize_debug_value(value=payload),
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+
+    def _serialize_debug_value(self, *, value: Any) -> Any:
+        if value is None or isinstance(value, bool | int | float):
+            return value
+
+        if isinstance(value, str):
+            return self._truncate_debug_text(text=value)
+
+        if isinstance(value, bytes):
+            encoded = base64.b64encode(value).decode("ascii")
+            return {
+                "__type__": "bytes",
+                "length": len(value),
+                "base64": self._truncate_debug_text(text=encoded),
+            }
+
+        if isinstance(value, dict):
+            return {
+                str(key): self._serialize_debug_value(value=item)
+                for key, item in value.items()
+            }
+
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return [self._serialize_debug_value(value=item) for item in value]
+
+        model_dump_method = getattr(value, "model_dump", None)
+        if callable(model_dump_method):
+            try:
+                dumped_value = model_dump_method(mode="json", exclude_none=True)
+            except TypeError:
+                dumped_value = model_dump_method()
+            return self._serialize_debug_value(value=dumped_value)
+
+        return self._truncate_debug_text(text=repr(value))
+
+    def _truncate_debug_text(self, *, text: str) -> str:
+        if len(text) <= _DEBUG_LOG_MAX_TEXT_LENGTH:
+            return text
+        return f"{text[:_DEBUG_LOG_MAX_TEXT_LENGTH]}...(truncated, {len(text)} chars total)"
 
     def _next_response_id(self) -> str:
         self._response_counter += 1

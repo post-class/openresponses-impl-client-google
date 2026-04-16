@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -334,6 +335,66 @@ class TestGeminiResponsesClientCreateResponse:
 
     @pytest.mark.asyncio
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    async def test_create_response_non_stream_emits_debug_request_and_response_logs(
+        self,
+        mock_client_cls: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_client = _build_mock_genai_client()
+        mock_client.aio.models.generate_content = AsyncMock(
+            return_value=MagicMock(
+                model_dump=lambda mode="json", exclude_none=True: build_gemini_response_payload()
+            )
+        )
+        mock_client_cls.return_value = mock_client
+
+        client = GeminiResponsesClient(
+            model="gemini-3-flash-preview",
+            google_api_key="test-secret-key",
+        )
+        payload = CreateResponseBody.model_validate({"input": "Hello", "stream": False})
+
+        with caplog.at_level(
+            logging.DEBUG,
+            logger="openresponses_impl_client_google.client.gemini_responses_client",
+        ):
+            await client.create_response(payload=payload)
+
+        assert "Gemini request payload:" in caplog.text
+        assert "Gemini response payload:" in caplog.text
+        assert '"contents": "Hello"' in caplog.text
+        assert '"response_id": "gemini_resp_123"' in caplog.text
+        assert "test-secret-key" not in caplog.text
+
+    @pytest.mark.asyncio
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    async def test_create_response_non_stream_does_not_emit_debug_logs_at_info_level(
+        self,
+        mock_client_cls: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_client = _build_mock_genai_client()
+        mock_client.aio.models.generate_content = AsyncMock(
+            return_value=MagicMock(
+                model_dump=lambda mode="json", exclude_none=True: build_gemini_response_payload()
+            )
+        )
+        mock_client_cls.return_value = mock_client
+
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate({"input": "Hello", "stream": False})
+
+        with caplog.at_level(
+            logging.INFO,
+            logger="openresponses_impl_client_google.client.gemini_responses_client",
+        ):
+            await client.create_response(payload=payload)
+
+        assert "Gemini request payload:" not in caplog.text
+        assert "Gemini response payload:" not in caplog.text
+
+    @pytest.mark.asyncio
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     async def test_create_response_non_stream_function_call_updates_cache(
         self, mock_client_cls: MagicMock
     ) -> None:
@@ -408,6 +469,46 @@ class TestGeminiResponsesClientCreateResponse:
 
     @pytest.mark.asyncio
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    async def test_create_response_non_stream_debug_logs_serialize_bytes_payload(
+        self,
+        mock_client_cls: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        function_call_payload = build_gemini_response_payload(
+            parts=[
+                {
+                    "function_call": {
+                        "id": "call_1",
+                        "name": "lookup_weather",
+                        "args": {"city": "Tokyo"},
+                    },
+                    "thought_signature": b"signature-123",
+                }
+            ]
+        )
+        mock_client = _build_mock_genai_client()
+        mock_client.aio.models.generate_content = AsyncMock(
+            return_value=MagicMock(
+                model_dump=lambda mode="json", exclude_none=True: function_call_payload
+            )
+        )
+        mock_client_cls.return_value = mock_client
+
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate({"input": "Hello", "stream": False})
+
+        with caplog.at_level(
+            logging.DEBUG,
+            logger="openresponses_impl_client_google.client.gemini_responses_client",
+        ):
+            await client.create_response(payload=payload)
+
+        assert '"__type__": "bytes"' in caplog.text
+        assert '"length": 13' in caplog.text
+        assert '"base64": "c2lnbmF0dXJlLTEyMw=="' in caplog.text
+
+    @pytest.mark.asyncio
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     async def test_create_response_stream(self, mock_client_cls: MagicMock) -> None:
         async def _stream() -> object:
             for chunk_payload in build_gemini_stream_chunk_payloads():
@@ -427,4 +528,38 @@ class TestGeminiResponsesClientCreateResponse:
 
         assert events[0].type == "response.created"
         assert any(event.type == "response.output_text.delta" for event in events)
+        assert events[-1].type == "response.completed"
+
+    @pytest.mark.asyncio
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    async def test_create_response_stream_emits_chunk_and_aggregate_debug_logs(
+        self,
+        mock_client_cls: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        async def _stream() -> object:
+            for chunk_payload in build_gemini_stream_chunk_payloads():
+                yield MagicMock(
+                    model_dump=lambda mode="json", exclude_none=True, payload=chunk_payload: payload
+                )
+
+        mock_client = _build_mock_genai_client()
+        mock_client.aio.models.generate_content_stream = AsyncMock(return_value=_stream())
+        mock_client_cls.return_value = mock_client
+
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate({"input": "Hello", "stream": True})
+
+        with caplog.at_level(
+            logging.DEBUG,
+            logger="openresponses_impl_client_google.client.gemini_responses_client",
+        ):
+            result = await client.create_response(payload=payload)
+            events = [event async for event in result]
+
+        assert "Gemini request payload:" in caplog.text
+        assert caplog.text.count("Gemini stream chunk payload:") == 2
+        assert "Gemini stream aggregated payload:" in caplog.text
+        assert '"text": "Hello world"' in caplog.text
+        assert events[0].type == "response.created"
         assert events[-1].type == "response.completed"

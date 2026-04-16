@@ -325,6 +325,14 @@ You should expect warning logs when:
 - `reasoning.summary` is requested
 - `reasoning.effort="xhigh"` is downgraded
 
+When the logger for `openresponses_impl_client_google.client.gemini_responses_client`
+is set to `DEBUG`, the client also logs Gemini request and response payloads:
+
+- non-streaming requests before `generate_content`
+- non-streaming raw Gemini responses after `generate_content`
+- each streaming chunk from `generate_content_stream`
+- the final aggregated streaming payload before OpenResponses terminal events are emitted
+
 ## Testing
 
 Run tests with:
