@@ -120,6 +120,33 @@ Implications:
 - If you persist tool state outside the process, persist both the OpenResponses item and `extensions.google.thought_signature` when present.
 - Invalid `thought_signature` payloads raise `ValueError`.
 
+### Native Gemini turn history is cached for tool follow-up
+
+Gemini parallel tool calls are not stable if provider-native turns are flattened into independent OpenResponses items and then replayed one by one.
+
+In particular, Gemini may emit multiple `function_call` parts in a single model turn, while only the first part carries `thought_signature`. If a later follow-up reconstructs those calls as separate Gemini turns, Gemini can reject the replay with:
+
+- `400 INVALID_ARGUMENT`
+- `Function call is missing a thought_signature`
+
+To avoid that, this client now keeps an in-memory cache of native Gemini `contents` history inside the `GeminiResponsesClient` instance.
+
+Current behavior:
+
+- The first request is converted from OpenResponses input into Gemini `contents` as usual.
+- The native Gemini response turn (`candidate.content`) is appended to the same in-memory history.
+- Later follow-up requests are treated as delta input only.
+- Consecutive OpenResponses `function_call` items are regrouped into one Gemini `ModelContent(parts=[...])`.
+- Consecutive OpenResponses `function_call_output` items are regrouped into one Gemini `UserContent(parts=[...])`.
+- The actual Gemini request is built from `cached native history + current delta`, not from a stateless replay of flattened OpenResponses history.
+
+Implications:
+
+- Multi-turn Gemini tool loops must reuse the same `GeminiResponsesClient` instance.
+- If your application creates a new client for every follow-up turn, Gemini tool replay may still fail.
+- `previous_response_id` is still not used as a stateless resume mechanism for Gemini in this package.
+- `parallel_tool_calls` remains an OpenResponses-level flag; the safety here comes from preserving Gemini-native turn structure, not from the flag itself.
+
 ### Media input is normalized best-effort
 
 OpenResponses `input_image`, `input_file`, and `input_video` are automatically converted to Gemini API format as follows:

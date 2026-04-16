@@ -65,6 +65,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         self._client = self._create_client()
         self._call_name_by_call_id: dict[str, str] = {}
         self._thought_signature_by_call_id: dict[str, str] = {}
+        self._native_contents_history: list[types.Content] = []
         self._response_counter = 0
 
     @override
@@ -92,7 +93,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         self._debug_log_payload("Gemini request payload:", request_kwargs)
         response = await self._client.aio.models.generate_content(**request_kwargs)
         self._debug_log_payload("Gemini response payload:", response)
-        return GeminiResponseModelUtil.parse_response(
+        parsed_response = GeminiResponseModelUtil.parse_response(
             payload=response,
             request_payload=request_payload,
             model=self._model,
@@ -101,6 +102,8 @@ class GeminiResponsesClient(BaseResponsesClient):
             thought_signature_by_call_id=self._thought_signature_by_call_id,
             completed_at=int(time.time()),
         )
+        self._append_native_response_to_history(payload=response)
+        return parsed_response
 
     async def _create_response_stream(
         self,
@@ -151,12 +154,71 @@ class GeminiResponsesClient(BaseResponsesClient):
         if payload.instructions:
             system_fragments.append(payload.instructions)
 
-        if isinstance(payload.input, str):
-            return payload.input, self._join_system_fragments(system_fragments)
+        delta_contents = self._convert_input_to_contents(
+            input_value=payload.input,
+            system_fragments=system_fragments,
+        )
+        if delta_contents:
+            self._append_native_contents_to_history(contents=delta_contents)
+
+        if not self._native_contents_history:
+            logger.warning("Gemini request did not contain any input content. Sending an empty string.")
+            return "", self._join_system_fragments(system_fragments)
+
+        return (
+            self._clone_contents(contents=self._native_contents_history),
+            self._join_system_fragments(system_fragments),
+        )
+
+    def _convert_input_to_contents(
+        self,
+        *,
+        input_value: Any,
+        system_fragments: list[str],
+    ) -> list[types.Content]:
+        if isinstance(input_value, str):
+            if not input_value:
+                return []
+            return [types.UserContent(parts=[types.Part.from_text(text=input_value)])]
 
         contents: list[types.Content] = []
-        for item_param in payload.input or []:
+        grouped_parts: list[types.Part] = []
+        grouped_role: str | None = None
+
+        def flush_group() -> None:
+            nonlocal grouped_parts, grouped_role
+            if not grouped_parts or grouped_role is None:
+                grouped_parts = []
+                grouped_role = None
+                return
+
+            if grouped_role == "model":
+                contents.append(types.ModelContent(parts=list(grouped_parts)))
+            else:
+                contents.append(types.UserContent(parts=list(grouped_parts)))
+            grouped_parts = []
+            grouped_role = None
+
+        for item_param in input_value or []:
             item = getattr(item_param, "root", item_param)
+            item_type = getattr(item, "type", None)
+            item_dict = self._normalize_model_or_dict(value=item)
+
+            if item_type == "function_call":
+                if grouped_role not in {None, "model"}:
+                    flush_group()
+                grouped_role = "model"
+                grouped_parts.append(self._build_function_call_part(item_dict=item_dict))
+                continue
+
+            if item_type == "function_call_output":
+                if grouped_role not in {None, "user"}:
+                    flush_group()
+                grouped_role = "user"
+                grouped_parts.append(self._build_function_response_part(item_dict=item_dict))
+                continue
+
+            flush_group()
             converted = self._convert_item_to_content(
                 item=item,
                 system_fragments=system_fragments,
@@ -164,11 +226,8 @@ class GeminiResponsesClient(BaseResponsesClient):
             if converted is not None:
                 contents.append(converted)
 
-        if not contents:
-            logger.warning("Gemini request did not contain any input content. Sending an empty string.")
-            return "", self._join_system_fragments(system_fragments)
-
-        return contents, self._join_system_fragments(system_fragments)
+        flush_group()
+        return contents
 
     def _convert_item_to_content(
         self,
@@ -203,51 +262,139 @@ class GeminiResponsesClient(BaseResponsesClient):
             return types.UserContent(parts=parts)
 
         if item_type == "function_call":
-            function_name = item_dict.get("name") or "unknown_function"
-            call_id = item_dict.get("call_id") or f"call_input_{len(self._call_name_by_call_id) + 1}"
-            arguments = self._parse_function_arguments(item_dict.get("arguments"))
-            self._call_name_by_call_id[call_id] = function_name
-            function_call_part_kwargs: dict[str, Any] = {
-                "function_call": types.FunctionCall(
-                    id=call_id,
-                    name=function_name,
-                    args=arguments,
-                )
-            }
-            thought_signature = self._extract_google_thought_signature(item_dict.get("extensions"))
-            if not thought_signature:
-                thought_signature = self._thought_signature_by_call_id.get(call_id)
-            if thought_signature:
-                function_call_part_kwargs["thought_signature"] = self._decode_thought_signature(
-                    value=thought_signature
-                )
-            function_call_part = types.Part(
-                **function_call_part_kwargs,
-            )
-            return types.ModelContent(parts=[function_call_part])
+            return types.ModelContent(parts=[self._build_function_call_part(item_dict=item_dict)])
 
         if item_type == "function_call_output":
-            call_id = item_dict.get("call_id")
-            function_name = self._call_name_by_call_id.get(call_id or "")
-            if not function_name:
-                raise ValueError(
-                    f"Unknown call_id for function_call_output: {call_id!r}. "
-                    "Gemini follow-up requires the original function name."
-                )
-
-            function_response = types.FunctionResponse(
-                id=call_id,
-                name=function_name,
-                response={
-                    "output": self._convert_function_call_output(
-                        output=item_dict.get("output")
-                    )
-                },
-            )
-            return types.UserContent(parts=[types.Part(function_response=function_response)])
+            return types.UserContent(parts=[self._build_function_response_part(item_dict=item_dict)])
 
         logger.warning("Gemini client ignores unsupported input item type: %s", item_type)
         return None
+
+    def _build_function_call_part(self, *, item_dict: dict[str, Any]) -> types.Part:
+        function_name = item_dict.get("name") or "unknown_function"
+        call_id = item_dict.get("call_id") or f"call_input_{len(self._call_name_by_call_id) + 1}"
+        arguments = self._parse_function_arguments(item_dict.get("arguments"))
+        self._call_name_by_call_id[call_id] = function_name
+        function_call_part_kwargs: dict[str, Any] = {
+            "function_call": types.FunctionCall(
+                id=call_id,
+                name=function_name,
+                args=arguments,
+            )
+        }
+        thought_signature = self._extract_google_thought_signature(item_dict.get("extensions"))
+        if not thought_signature:
+            thought_signature = self._thought_signature_by_call_id.get(call_id)
+        if thought_signature:
+            function_call_part_kwargs["thought_signature"] = self._decode_thought_signature(
+                value=thought_signature
+            )
+        return types.Part(**function_call_part_kwargs)
+
+    def _build_function_response_part(self, *, item_dict: dict[str, Any]) -> types.Part:
+        call_id = item_dict.get("call_id")
+        function_name = self._call_name_by_call_id.get(call_id or "")
+        if not function_name:
+            raise ValueError(
+                f"Unknown call_id for function_call_output: {call_id!r}. "
+                "Gemini follow-up requires the original function name."
+            )
+
+        function_response = types.FunctionResponse(
+            id=call_id,
+            name=function_name,
+            response={
+                "output": self._convert_function_call_output(
+                    output=item_dict.get("output")
+                )
+            },
+        )
+        return types.Part(function_response=function_response)
+
+    def _append_native_contents_to_history(self, *, contents: list[types.Content]) -> None:
+        self._native_contents_history.extend(self._clone_contents(contents=contents))
+
+    def _append_native_response_to_history(self, *, payload: Any) -> None:
+        native_content = self._extract_native_response_content(payload=payload)
+        if native_content is None:
+            return
+        self._append_native_contents_to_history(contents=[native_content])
+
+    def _extract_native_response_content(self, *, payload: Any) -> types.Content | None:
+        normalized_payload = GeminiResponseModelUtil._normalize_payload(payload=payload)
+        candidate = GeminiResponseModelUtil._get_first_candidate(payload=normalized_payload)
+        if candidate is None:
+            return None
+
+        content_dict = candidate.get("content")
+        if not isinstance(content_dict, dict):
+            return None
+
+        parts: list[types.Part] = []
+        for raw_part in content_dict.get("parts") or []:
+            if not isinstance(raw_part, dict):
+                continue
+            native_part = self._build_native_part_from_response(raw_part=raw_part)
+            if native_part is not None:
+                parts.append(native_part)
+
+        if not parts:
+            return None
+
+        if content_dict.get("role") == "user":
+            return types.UserContent(parts=parts)
+        return types.ModelContent(parts=parts)
+
+    def _build_native_part_from_response(self, *, raw_part: dict[str, Any]) -> types.Part | None:
+        if isinstance(raw_part.get("text"), str):
+            part_kwargs: dict[str, Any] = {"text": raw_part["text"]}
+            if "thought" in types.Part.model_fields and raw_part.get("thought") is not None:
+                part_kwargs["thought"] = raw_part.get("thought")
+            thought_signature = GeminiResponseModelUtil._extract_thought_signature_from_part(
+                part=raw_part
+            )
+            if thought_signature:
+                part_kwargs["thought_signature"] = self._decode_thought_signature(
+                    value=thought_signature
+                )
+            return types.Part(**part_kwargs)
+
+        function_call = raw_part.get("function_call")
+        if isinstance(function_call, dict):
+            call_id = function_call.get("id")
+            function_name = function_call.get("name") or "unknown_function"
+            if isinstance(call_id, str) and call_id:
+                self._call_name_by_call_id[call_id] = function_name
+            part_kwargs = {
+                "function_call": types.FunctionCall(
+                    id=call_id,
+                    name=function_name,
+                    args=CopyUtil.deep_copy(function_call.get("args") or {}),
+                )
+            }
+            thought_signature = GeminiResponseModelUtil._extract_thought_signature_from_part(
+                part=raw_part
+            )
+            if thought_signature:
+                part_kwargs["thought_signature"] = self._decode_thought_signature(
+                    value=thought_signature
+                )
+            return types.Part(**part_kwargs)
+
+        function_response = raw_part.get("function_response")
+        if isinstance(function_response, dict):
+            return types.Part(
+                function_response=types.FunctionResponse(
+                    id=function_response.get("id"),
+                    name=function_response.get("name") or "unknown_function",
+                    response=CopyUtil.deep_copy(function_response.get("response") or {}),
+                )
+            )
+
+        return None
+
+    def _clone_contents(self, *, contents: list[types.Content]) -> list[types.Content]:
+        return [content.model_copy(deep=True) for content in contents]
 
     def _convert_message_content_to_parts(self, *, content: Any) -> list[types.Part]:
         if isinstance(content, str):
@@ -662,6 +809,7 @@ class GeminiResponsesClient(BaseResponsesClient):
                     completed_at=int(time.time()),
                 )
 
+            self._append_native_response_to_history(payload=aggregate_payload)
             self._debug_log_payload(
                 "Gemini stream aggregated payload:",
                 aggregate_payload,

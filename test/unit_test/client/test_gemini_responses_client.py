@@ -309,6 +309,72 @@ class TestGeminiResponsesClientBuildRequest:
         assert content.parts[0].function_call is not None
         assert content.parts[0].thought_signature == b"signature-123"
 
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_groups_parallel_function_calls_into_single_model_turn(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "tool_one",
+                        "arguments": "{\"value\":1}",
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "call_2",
+                        "name": "tool_two",
+                        "arguments": "{\"value\":2}",
+                    },
+                ]
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        assert len(kwargs["contents"]) == 1
+        content = kwargs["contents"][0]
+        assert len(content.parts) == 2
+        assert content.parts[0].function_call.name == "tool_one"
+        assert content.parts[1].function_call.name == "tool_two"
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_groups_parallel_function_call_outputs_into_single_user_turn(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        client._call_name_by_call_id["call_1"] = "tool_one"
+        client._call_name_by_call_id["call_2"] = "tool_two"
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_1",
+                        "output": "first",
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_2",
+                        "output": "second",
+                    },
+                ]
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        assert len(kwargs["contents"]) == 1
+        content = kwargs["contents"][0]
+        assert len(content.parts) == 2
+        assert content.parts[0].function_response.name == "tool_one"
+        assert content.parts[1].function_response.name == "tool_two"
+
 
 class TestGeminiResponsesClientCreateResponse:
     """Tests for response creation methods."""
@@ -362,7 +428,7 @@ class TestGeminiResponsesClientCreateResponse:
 
         assert "Gemini request payload:" in caplog.text
         assert "Gemini response payload:" in caplog.text
-        assert '"contents": "Hello"' in caplog.text
+        assert '"text": "Hello"' in caplog.text
         assert '"response_id": "gemini_resp_123"' in caplog.text
         assert "test-secret-key" not in caplog.text
 
@@ -466,6 +532,80 @@ class TestGeminiResponsesClientCreateResponse:
         }
         assert client._call_name_by_call_id["call_1"] == "lookup_weather"
         assert client._thought_signature_by_call_id["call_1"] == "c2lnbmF0dXJlLTEyMw"
+
+    @pytest.mark.asyncio
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    async def test_create_response_non_stream_follow_up_uses_cached_native_turn_history(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        first_response_payload = build_gemini_response_payload(
+            parts=[
+                {
+                    "function_call": {
+                        "id": "call_1",
+                        "name": "lookup_weather",
+                        "args": {"city": "Tokyo"},
+                    },
+                    "thought_signature": "c2lnbmF0dXJlLTEyMw",
+                },
+                {
+                    "function_call": {
+                        "id": "call_2",
+                        "name": "lookup_time",
+                        "args": {"city": "Tokyo"},
+                    },
+                },
+            ]
+        )
+        second_response_payload = build_gemini_response_payload(parts=[{"text": "done"}])
+
+        mock_client = _build_mock_genai_client()
+        mock_client.aio.models.generate_content = AsyncMock(
+            side_effect=[
+                MagicMock(
+                    model_dump=lambda mode="json", exclude_none=True: first_response_payload
+                ),
+                MagicMock(
+                    model_dump=lambda mode="json", exclude_none=True: second_response_payload
+                ),
+            ]
+        )
+        mock_client_cls.return_value = mock_client
+
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        first_payload = CreateResponseBody.model_validate({"input": "Hello", "stream": False})
+        await client.create_response(payload=first_payload)
+
+        second_payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_1",
+                        "output": "sunny",
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_2",
+                        "output": "18:00",
+                    },
+                ],
+                "stream": False,
+            }
+        )
+        await client.create_response(payload=second_payload)
+
+        second_call_kwargs = mock_client.aio.models.generate_content.await_args_list[1].kwargs
+        contents = second_call_kwargs["contents"]
+        assert len(contents) == 3
+        assert contents[0].parts[0].text == "Hello"
+        assert len(contents[1].parts) == 2
+        assert contents[1].parts[0].function_call.name == "lookup_weather"
+        assert contents[1].parts[0].thought_signature == b"signature-123"
+        assert contents[1].parts[1].function_call.name == "lookup_time"
+        assert len(contents[2].parts) == 2
+        assert contents[2].parts[0].function_response.name == "lookup_weather"
+        assert contents[2].parts[1].function_response.name == "lookup_time"
 
     @pytest.mark.asyncio
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")

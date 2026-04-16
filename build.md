@@ -1,3 +1,6 @@
+# 0. clear
+rm -f dist/*
+
 # 1. Build the package
 UV_CACHE_DIR="$PWD/.uv_cache" uv run python -m build
 
