@@ -1127,10 +1127,9 @@ class GeminiResponsesClient(BaseResponsesClient):
         google_extensions = extensions.get("google")
         if not isinstance(google_extensions, dict):
             return None
-        thought_signature = google_extensions.get("thought_signature")
-        if isinstance(thought_signature, str) and thought_signature:
-            return thought_signature
-        return None
+        return GeminiResponseModelUtil._normalize_thought_signature(
+            google_extensions.get("thought_signature")
+        )
 
     def _guess_mime_type(self, *, uri: str, filename: str | None = None) -> str:
         mime_type, _ = mimetypes.guess_type(filename or uri)

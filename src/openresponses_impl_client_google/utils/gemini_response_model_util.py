@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import time
 from datetime import datetime
@@ -199,8 +200,10 @@ class GeminiResponseModelUtil:
                 )
                 if call_name_by_call_id is not None:
                     call_name_by_call_id[call_id] = function_name
-                thought_signature = part.get("thought_signature")
-                if isinstance(thought_signature, str) and thought_signature:
+                thought_signature = GeminiResponseModelUtil._extract_thought_signature_from_part(
+                    part=part
+                )
+                if thought_signature:
                     output_items[-1]["extensions"] = {
                         "google": {
                             "thought_signature": thought_signature,
@@ -477,6 +480,29 @@ class GeminiResponseModelUtil:
     @staticmethod
     def _json_dumps(value: Any) -> str:
         return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+    @staticmethod
+    def _normalize_thought_signature(value: Any) -> str | None:
+        if isinstance(value, bytes):
+            encoded = base64.urlsafe_b64encode(value).decode("ascii")
+            return encoded.rstrip("=")
+
+        if isinstance(value, bytearray):
+            encoded = base64.urlsafe_b64encode(bytes(value)).decode("ascii")
+            return encoded.rstrip("=")
+
+        if isinstance(value, str) and value:
+            return value
+
+        return None
+
+    @staticmethod
+    def _extract_thought_signature_from_part(*, part: dict[str, Any]) -> str | None:
+        for key in ("thought_signature", "thoughtSignature"):
+            normalized = GeminiResponseModelUtil._normalize_thought_signature(part.get(key))
+            if normalized:
+                return normalized
+        return None
 
     @staticmethod
     def _safe_int(value: Any) -> int:

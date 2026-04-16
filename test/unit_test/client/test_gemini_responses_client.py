@@ -368,6 +368,46 @@ class TestGeminiResponsesClientCreateResponse:
 
     @pytest.mark.asyncio
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    async def test_create_response_non_stream_function_call_updates_cache_for_bytes_signature(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        function_call_payload = build_gemini_response_payload(
+            parts=[
+                {
+                    "function_call": {
+                        "id": "call_1",
+                        "name": "lookup_weather",
+                        "args": {"city": "Tokyo"},
+                    },
+                    "thought_signature": b"signature-123",
+                }
+            ]
+        )
+        mock_client = _build_mock_genai_client()
+        mock_client.aio.models.generate_content = AsyncMock(
+            return_value=MagicMock(
+                model_dump=lambda mode="json", exclude_none=True: function_call_payload
+            )
+        )
+        mock_client_cls.return_value = mock_client
+
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate({"input": "Hello", "stream": False})
+
+        result = await client.create_response(payload=payload)
+
+        function_call = result.output[0].root
+        assert function_call.type == "function_call"
+        assert function_call.extensions == {
+            "google": {
+                "thought_signature": "c2lnbmF0dXJlLTEyMw",
+            }
+        }
+        assert client._call_name_by_call_id["call_1"] == "lookup_weather"
+        assert client._thought_signature_by_call_id["call_1"] == "c2lnbmF0dXJlLTEyMw"
+
+    @pytest.mark.asyncio
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     async def test_create_response_stream(self, mock_client_cls: MagicMock) -> None:
         async def _stream() -> object:
             for chunk_payload in build_gemini_stream_chunk_payloads():

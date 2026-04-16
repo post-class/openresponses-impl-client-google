@@ -92,6 +92,41 @@ class TestGeminiResponseModelUtil:
         assert cache["call_1"] == "lookup_weather"
         assert thought_signature_cache["call_1"] == "c2lnbmF0dXJlLTEyMw"
 
+    def test_parse_response_with_function_call_bytes_signature_updates_extensions_and_cache(self) -> None:
+        payload = build_gemini_response_payload(
+            parts=[
+                {
+                    "function_call": {
+                        "id": "call_1",
+                        "name": "lookup_weather",
+                        "args": {"city": "Tokyo"},
+                    },
+                    "thought_signature": b"signature-123",
+                }
+            ]
+        )
+        cache: dict[str, str] = {}
+        thought_signature_cache: dict[str, str] = {}
+
+        result = GeminiResponseModelUtil.parse_response(
+            payload=payload,
+            request_payload={"tools": [{"type": "function", "name": "lookup_weather"}]},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+            call_name_by_call_id=cache,
+            thought_signature_by_call_id=thought_signature_cache,
+        )
+
+        function_call = result.output[0].root
+        assert function_call.type == "function_call"
+        assert function_call.extensions == {
+            "google": {
+                "thought_signature": "c2lnbmF0dXJlLTEyMw",
+            }
+        }
+        assert cache["call_1"] == "lookup_weather"
+        assert thought_signature_cache["call_1"] == "c2lnbmF0dXJlLTEyMw"
+
     def test_parse_response_with_json_schema_text_config(self) -> None:
         payload = build_gemini_response_payload()
 

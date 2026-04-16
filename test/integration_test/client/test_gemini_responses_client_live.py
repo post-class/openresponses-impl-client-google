@@ -182,6 +182,8 @@ class TestGeminiResponsesClientLive:
 
         assert function_calls, "Expected Gemini to return at least one function_call item."
         function_call = function_calls[0]
+        assert function_call.extensions is not None
+        assert function_call.extensions.get("google", {}).get("thought_signature")
 
         tool_output_payload = {
             "city": "Tokyo",
@@ -207,6 +209,7 @@ class TestGeminiResponsesClientLive:
                         "call_id": function_call.call_id,
                         "name": function_call.name,
                         "arguments": function_call.arguments,
+                        "extensions": function_call.extensions,
                     },
                     {
                         "type": "function_call_output",
