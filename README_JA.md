@@ -79,11 +79,46 @@ OpenResponsesの`function_call_output`は`call_id`のみを保持するため、
 
 - `call_id -> 関数名`
 
+また、Geminiの関数呼び出しには`thought_signature`が付くことがあり、このクライアントはそれもGemini固有の状態として別途メモリ内マッピングで保持します：
+
+- `call_id -> thought_signature`
+
 影響：
 
 - ツールのフォローアップは同じ`GeminiResponsesClient`インスタンスで行う必要があります。
 - `previous_response_id`からのステートレスなリプレイは実装されていません。
 - 未知の`call_id`の`function_call_output`が到着した場合、クライアントは`ValueError`を発生させます。
+
+### `thought_signature` は正規化して再利用されます
+
+Geminiは`function_call`パートに`thought_signature`を返すことがあります。このフィールドは汎用のOpenResponsesスキーマには存在しないため、このクライアントではGemini固有拡張として保持します：
+
+```json
+{
+  "type": "function_call",
+  "call_id": "call_1",
+  "name": "lookup_weather",
+  "arguments": "{\"city\":\"Tokyo\"}",
+  "extensions": {
+    "google": {
+      "thought_signature": "c2lnbmF0dXJlLTEyMw"
+    }
+  }
+}
+```
+
+特殊処理の内容：
+
+- Geminiが`thought_signature`を`bytes`で返した場合でも、公開時にはパディングなしのURL-safe base64文字列へ正規化して`extensions.google.thought_signature`に格納します。
+- クライアントは`call_id`単位で`thought_signature`をメモリ内にキャッシュします。
+- 後続ターンで同じ`function_call`をOpenResponses入力として再送する際、`extensions.google.thought_signature`があればGemini SDK向けの`bytes`へ復元して渡します。
+- 再送時にその拡張が省略されていても、同じ`call_id`に対するキャッシュ済み値があればそれを再利用します。
+
+影響：
+
+- 複数ターンのツール実行フローでは、同じ`GeminiResponsesClient`インスタンスを継続利用してください。
+- プロセス外にツール状態を保存する場合は、OpenResponsesアイテム本体に加えて`extensions.google.thought_signature`も保持してください。
+- 不正な`thought_signature`ペイロードを受け取った場合、`ValueError`を発生させます。
 
 ### メディア入力はベストエフォートで正規化されます
 

@@ -79,11 +79,46 @@ OpenResponses `function_call_output` only carries `call_id`, so this client keep
 
 - `call_id -> function name`
 
+Gemini function calls may also include `thought_signature`. This client treats it as Gemini-specific state and keeps a second in-memory mapping:
+
+- `call_id -> thought_signature`
+
 Implications:
 
 - Tool follow-up must happen on the same `GeminiResponsesClient` instance.
 - Stateless replay from `previous_response_id` is not implemented.
 - If a `function_call_output` arrives for an unknown `call_id`, the client raises `ValueError`.
+
+### `thought_signature` is normalized and replayed for Gemini tool turns
+
+Gemini may return `thought_signature` on a `function_call` part. This field is not part of the generic OpenResponses schema, so this client preserves it under Gemini-specific extensions:
+
+```json
+{
+  "type": "function_call",
+  "call_id": "call_1",
+  "name": "lookup_weather",
+  "arguments": "{\"city\":\"Tokyo\"}",
+  "extensions": {
+    "google": {
+      "thought_signature": "c2lnbmF0dXJlLTEyMw"
+    }
+  }
+}
+```
+
+Special handling:
+
+- When Gemini returns `thought_signature` as `bytes`, it is converted to URL-safe base64 without padding before being exposed in `extensions.google.thought_signature`.
+- The client caches `thought_signature` by `call_id` in memory.
+- When a later OpenResponses input contains the same `function_call` again, the client restores the Gemini `thought_signature` bytes from `extensions.google.thought_signature`.
+- If that extension is omitted on replay, the client falls back to the cached value for the same `call_id`.
+
+Implications:
+
+- Multi-turn tool flows should keep using the same `GeminiResponsesClient` instance.
+- If you persist tool state outside the process, persist both the OpenResponses item and `extensions.google.thought_signature` when present.
+- Invalid `thought_signature` payloads raise `ValueError`.
 
 ### Media input is normalized best-effort
 
