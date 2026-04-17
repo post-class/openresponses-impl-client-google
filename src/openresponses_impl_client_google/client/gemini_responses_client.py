@@ -66,7 +66,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         self._call_name_by_call_id: dict[str, str] = {}
         self._thought_signature_by_call_id: dict[str, str] = {}
         self._native_contents_history: list[types.Content] = []
-        self._cached_system_instruction: str | None = None
+        self._cached_sticky_instruction: str | None = None
         self._response_counter = 0
 
     @override
@@ -151,18 +151,23 @@ class GeminiResponsesClient(BaseResponsesClient):
         *,
         payload: CreateResponseBody,
     ) -> tuple[str | list[types.Content], str | None]:
-        system_fragments: list[str] = []
-        if payload.instructions:
-            system_fragments.append(payload.instructions)
+        sticky_instruction_fragments: list[str] = []
+        request_instruction = self._normalize_instruction_fragment(payload.instructions)
 
         delta_contents = self._convert_input_to_contents(
             input_value=payload.input,
-            system_fragments=system_fragments,
+            sticky_instruction_fragments=sticky_instruction_fragments,
         )
         if delta_contents:
             self._append_native_contents_to_history(contents=delta_contents)
 
-        system_instruction = self._resolve_system_instruction(system_fragments=system_fragments)
+        sticky_instruction = self._resolve_sticky_instruction(
+            sticky_instruction_fragments=sticky_instruction_fragments
+        )
+        system_instruction = self._build_effective_system_instruction(
+            request_instruction=request_instruction,
+            sticky_instruction=sticky_instruction,
+        )
 
         if not self._native_contents_history:
             logger.warning("Gemini request did not contain any input content. Sending an empty string.")
@@ -173,18 +178,41 @@ class GeminiResponsesClient(BaseResponsesClient):
             system_instruction,
         )
 
-    def _resolve_system_instruction(self, *, system_fragments: list[str]) -> str | None:
-        resolved_instruction = self._join_system_fragments(system_fragments)
-        if resolved_instruction:
-            self._cached_system_instruction = resolved_instruction
-            return resolved_instruction
-        return self._cached_system_instruction
+    def _resolve_sticky_instruction(
+        self, *, sticky_instruction_fragments: list[str]
+    ) -> str | None:
+        resolved_sticky_instruction = self._join_system_fragments(sticky_instruction_fragments)
+        if resolved_sticky_instruction:
+            self._cached_sticky_instruction = resolved_sticky_instruction
+            return resolved_sticky_instruction
+        return self._cached_sticky_instruction
+
+    def _build_effective_system_instruction(
+        self,
+        *,
+        request_instruction: str | None,
+        sticky_instruction: str | None,
+    ) -> str | None:
+        effective_fragments = [
+            fragment
+            for fragment in [request_instruction, sticky_instruction]
+            if fragment
+        ]
+        return self._join_system_fragments(effective_fragments)
+
+    def _normalize_instruction_fragment(self, instruction: str | None) -> str | None:
+        if instruction is None:
+            return None
+        normalized_instruction = instruction.strip()
+        if not normalized_instruction:
+            return None
+        return normalized_instruction
 
     def _convert_input_to_contents(
         self,
         *,
         input_value: Any,
-        system_fragments: list[str],
+        sticky_instruction_fragments: list[str],
     ) -> list[types.Content]:
         if isinstance(input_value, str):
             if not input_value:
@@ -231,7 +259,7 @@ class GeminiResponsesClient(BaseResponsesClient):
             flush_group()
             converted = self._convert_item_to_content(
                 item=item,
-                system_fragments=system_fragments,
+                sticky_instruction_fragments=sticky_instruction_fragments,
             )
             if converted is not None:
                 contents.append(converted)
@@ -243,7 +271,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         self,
         *,
         item: Any,
-        system_fragments: list[str],
+        sticky_instruction_fragments: list[str],
     ) -> types.Content | None:
         item_type = getattr(item, "type", None)
         item_dict = self._normalize_model_or_dict(value=item)
@@ -261,7 +289,7 @@ class GeminiResponsesClient(BaseResponsesClient):
             if role in {"system", "developer"}:
                 extracted = self._extract_message_text_for_instruction(content=item_dict.get("content"))
                 if extracted:
-                    system_fragments.append(extracted)
+                    sticky_instruction_fragments.append(extracted)
                 return None
 
             parts = self._convert_message_content_to_parts(content=item_dict.get("content"))
