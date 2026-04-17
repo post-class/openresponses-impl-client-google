@@ -66,6 +66,7 @@ class GeminiResponsesClient(BaseResponsesClient):
         self._call_name_by_call_id: dict[str, str] = {}
         self._thought_signature_by_call_id: dict[str, str] = {}
         self._native_contents_history: list[types.Content] = []
+        self._cached_system_instruction: str | None = None
         self._response_counter = 0
 
     @override
@@ -161,14 +162,23 @@ class GeminiResponsesClient(BaseResponsesClient):
         if delta_contents:
             self._append_native_contents_to_history(contents=delta_contents)
 
+        system_instruction = self._resolve_system_instruction(system_fragments=system_fragments)
+
         if not self._native_contents_history:
             logger.warning("Gemini request did not contain any input content. Sending an empty string.")
-            return "", self._join_system_fragments(system_fragments)
+            return "", system_instruction
 
         return (
             self._clone_contents(contents=self._native_contents_history),
-            self._join_system_fragments(system_fragments),
+            system_instruction,
         )
+
+    def _resolve_system_instruction(self, *, system_fragments: list[str]) -> str | None:
+        resolved_instruction = self._join_system_fragments(system_fragments)
+        if resolved_instruction:
+            self._cached_system_instruction = resolved_instruction
+            return resolved_instruction
+        return self._cached_system_instruction
 
     def _convert_input_to_contents(
         self,

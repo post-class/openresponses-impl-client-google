@@ -31,6 +31,19 @@ def _build_mock_genai_client() -> MagicMock:
     return client
 
 
+def _extract_system_instruction_text(config: object) -> str | None:
+    system_instruction = getattr(config, "system_instruction", None)
+    if system_instruction is None:
+        return None
+
+    parts = getattr(system_instruction, "parts", None) or []
+    if not parts:
+        return None
+
+    first_part = parts[0]
+    return getattr(first_part, "text", None)
+
+
 class TestGeminiResponsesClientInit:
     """Tests for GeminiResponsesClient initialization."""
 
@@ -113,6 +126,113 @@ class TestGeminiResponsesClientBuildRequest:
             "type": "object",
             "properties": {"ok": {"type": "boolean"}},
         }
+        system_instruction_text = _extract_system_instruction_text(config)
+        assert system_instruction_text is not None
+        assert "Primary instructions" in system_instruction_text
+        assert "System message" in system_instruction_text
+        assert "Developer message" in system_instruction_text
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_reuses_cached_system_instruction_for_follow_up(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+
+        initial_payload = CreateResponseBody.model_validate(
+            {
+                "instructions": "Primary instructions",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "Developer message"}],
+                    },
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Hello"}],
+                    },
+                ],
+            }
+        )
+        first_kwargs = client._build_generate_content_kwargs(payload=initial_payload, extra_params=None)
+
+        client._call_name_by_call_id["call_1"] = "lookup_weather"
+        follow_up_payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_1",
+                        "output": "sunny",
+                    }
+                ]
+            }
+        )
+        second_kwargs = client._build_generate_content_kwargs(payload=follow_up_payload, extra_params=None)
+
+        first_system_instruction = _extract_system_instruction_text(first_kwargs["config"])
+        second_system_instruction = _extract_system_instruction_text(second_kwargs["config"])
+        assert first_system_instruction == second_system_instruction
+        assert second_system_instruction is not None
+        assert "Primary instructions" in second_system_instruction
+        assert "Developer message" in second_system_instruction
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_replaces_cached_system_instruction_when_new_value_is_provided(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+
+        initial_payload = CreateResponseBody.model_validate(
+            {
+                "instructions": "Initial instructions",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "Initial developer"}],
+                    },
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Hello"}],
+                    },
+                ],
+            }
+        )
+        client._build_generate_content_kwargs(payload=initial_payload, extra_params=None)
+
+        replacement_payload = CreateResponseBody.model_validate(
+            {
+                "instructions": "Replacement instructions",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "Replacement developer"}],
+                    },
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Next turn"}],
+                    },
+                ],
+            }
+        )
+        replacement_kwargs = client._build_generate_content_kwargs(
+            payload=replacement_payload,
+            extra_params=None,
+        )
+
+        replacement_system_instruction = _extract_system_instruction_text(replacement_kwargs["config"])
+        assert replacement_system_instruction is not None
+        assert "Replacement instructions" in replacement_system_instruction
+        assert "Replacement developer" in replacement_system_instruction
+        assert "Initial instructions" not in replacement_system_instruction
+        assert "Initial developer" not in replacement_system_instruction
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_build_kwargs_with_function_tool_and_choice(self, mock_client_cls: MagicMock) -> None:
@@ -573,7 +693,24 @@ class TestGeminiResponsesClientCreateResponse:
         mock_client_cls.return_value = mock_client
 
         client = GeminiResponsesClient(model="gemini-3-flash-preview")
-        first_payload = CreateResponseBody.model_validate({"input": "Hello", "stream": False})
+        first_payload = CreateResponseBody.model_validate(
+            {
+                "instructions": "Initial instructions",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "Developer message"}],
+                    },
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Hello"}],
+                    },
+                ],
+                "stream": False,
+            }
+        )
         await client.create_response(payload=first_payload)
 
         second_payload = CreateResponseBody.model_validate(
@@ -606,6 +743,9 @@ class TestGeminiResponsesClientCreateResponse:
         assert len(contents[2].parts) == 2
         assert contents[2].parts[0].function_response.name == "lookup_weather"
         assert contents[2].parts[1].function_response.name == "lookup_time"
+        config = second_call_kwargs["config"]
+        system_instruction_text = _extract_system_instruction_text(config)
+        assert system_instruction_text == "Initial instructions\n\nDeveloper message"
 
     @pytest.mark.asyncio
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")

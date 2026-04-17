@@ -72,6 +72,12 @@ This client merges:
 
 into a single Gemini `system_instruction` string.
 
+For multi-turn flows on the same `GeminiResponsesClient` instance, the resolved
+`system_instruction` is also cached. If a follow-up turn omits
+`instructions/system/developer`, the client reuses the last resolved value. If a
+later turn provides a new explicit value, the cached `system_instruction` is
+replaced rather than appended again.
+
 ### Tool follow-up requires the same client instance
 
 Gemini tool follow-up uses `function_response`, which requires the original function name.  
@@ -139,6 +145,7 @@ Current behavior:
 - Consecutive OpenResponses `function_call` items are regrouped into one Gemini `ModelContent(parts=[...])`.
 - Consecutive OpenResponses `function_call_output` items are regrouped into one Gemini `UserContent(parts=[...])`.
 - The actual Gemini request is built from `cached native history + current delta`, not from a stateless replay of flattened OpenResponses history.
+- The effective Gemini `system_instruction` is cached separately from `contents`, so follow-up turns can keep prior instructions without replaying full OpenResponses history.
 
 Implications:
 
