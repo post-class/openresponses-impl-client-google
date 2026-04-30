@@ -165,7 +165,7 @@ Gemini の並列ツール呼び出しは、provider-native のターン構造を
 
 OpenResponsesの`input_image`、`input_file`、`input_video`は、以下のように自動的にGemini APIの形式に変換されます：
 
-#### 1. Data URI形式（`data:`で始まるURI）
+#### 1. `input_image` / `input_video` の Data URI形式（`data:`で始まるURI）
 ```python
 # 例: data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...
 Message(
@@ -179,7 +179,24 @@ Message(
 - Gemini APIの`types.Part.from_bytes(data=..., mime_type=...)`を使用
 - **用途**: 小さい画像・動画をリクエストに直接埋め込む場合
 
-#### 2. URI形式（GCS、YouTube、HTTPSなど）
+#### 2. `input_file` の `file_data`（raw base64 データ）
+```python
+Message(
+    role="user",
+    content=[
+        InputFile(
+            filename="sample.pdf",
+            file_data="JVBERi0xLjQKJ..."
+        )
+    ]
+)
+```
+- `file_data` は `data:` URI ではなく raw base64 データとして扱われます
+- Base64データをデコードして inline bytes として送信します
+- Gemini APIの`types.Part.from_bytes(data=..., mime_type=...)`を使用します
+- MIMEタイプは `filename` から推測し、推測できない場合は `application/octet-stream` にフォールバックします
+
+#### 3. `input_file` の `file_url`、またはURIベースの `input_video`
 ```python
 # 例: gs://bucket/video.mp4, https://example.com/image.jpg
 Message(
@@ -193,12 +210,12 @@ Message(
 - Gemini APIの`types.Part.from_uri(file_uri=..., mime_type=...)`を使用
 - **用途**: GCS上のファイル、YouTube動画、外部URLの参照
 
-#### 3. MIMEタイプの自動推測
+#### 4. MIMEタイプの自動推測
 - URIやファイル名の拡張子から自動的にMIMEタイプを推測（例: `.mp4` → `video/mp4`）
 - 推測できない場合は`application/octet-stream`にフォールバック
 - 警告ログが出力されます
 
-#### 4. Files APIでアップロードしたファイル
+#### 5. Files APIでアップロードしたファイル
 ```python
 # Google GenAI SDKで事前アップロード
 video_file = genai_client.files.upload(file="path/to/video.mp4")

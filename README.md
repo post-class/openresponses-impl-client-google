@@ -164,7 +164,7 @@ Implications:
 
 OpenResponses `input_image`, `input_file`, and `input_video` are automatically converted to Gemini API format as follows:
 
-#### 1. Data URI format (URIs starting with `data:`)
+#### 1. `input_image` / `input_video` with Data URI format (URIs starting with `data:`)
 ```python
 # Example: data:image/png;base64,iVBORw0KGgoAAAANSUhEUg...
 Message(
@@ -178,7 +178,24 @@ Message(
 - Uses Gemini API's `types.Part.from_bytes(data=..., mime_type=...)`
 - **Use case**: Embedding small images/videos directly in requests
 
-#### 2. URI format (GCS, YouTube, HTTPS, etc.)
+#### 2. `input_file` with `file_data` (raw base64 data)
+```python
+Message(
+    role="user",
+    content=[
+        InputFile(
+            filename="sample.pdf",
+            file_data="JVBERi0xLjQKJ..."
+        )
+    ]
+)
+```
+- `file_data` is treated as raw base64 data, not as a `data:` URI
+- Base64 data is decoded and sent as inline bytes
+- Uses Gemini API's `types.Part.from_bytes(data=..., mime_type=...)`
+- MIME type is inferred from `filename`; falls back to `application/octet-stream`
+
+#### 3. `input_file` with `file_url`, or URI-based `input_video`
 ```python
 # Example: gs://bucket/video.mp4, https://example.com/image.jpg
 Message(
@@ -192,12 +209,12 @@ Message(
 - Uses Gemini API's `types.Part.from_uri(file_uri=..., mime_type=...)`
 - **Use case**: Referencing files on GCS, YouTube videos, external URLs
 
-#### 3. Automatic MIME type inference
+#### 4. Automatic MIME type inference
 - MIME type is automatically inferred from URI or filename extension (e.g., `.mp4` → `video/mp4`)
 - Falls back to `application/octet-stream` if inference fails
 - Warning log is emitted on fallback
 
-#### 4. Files uploaded via Files API
+#### 5. Files uploaded via Files API
 ```python
 # Pre-upload using Google GenAI SDK
 video_file = genai_client.files.upload(file="path/to/video.mp4")

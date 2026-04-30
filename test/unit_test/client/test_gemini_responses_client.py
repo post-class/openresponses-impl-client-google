@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import sys
@@ -414,6 +415,168 @@ class TestGeminiResponsesClientBuildRequest:
 
         assert kwargs["model"] == "gemini-3-flash-preview"
         assert mock_warning.called
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_input_file_file_data_uses_inline_bytes(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_file",
+                                "filename": "sample.pdf",
+                                "file_data": base64.b64encode(b"PDF-DATA").decode("ascii"),
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        content = kwargs["contents"][0]
+        part = content.parts[0]
+        assert part.inline_data is not None
+        assert part.inline_data.data == b"PDF-DATA"
+        assert part.inline_data.mime_type == "application/pdf"
+        assert part.file_data is None
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_input_file_file_data_unknown_filename_falls_back_to_octet_stream(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_file",
+                                "filename": "sample.unknownext",
+                                "file_data": base64.b64encode(b"BINARY-DATA").decode("ascii"),
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        with patch(
+            "openresponses_impl_client_google.client.gemini_responses_client.logger.warning"
+        ) as mock_warning:
+            kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        content = kwargs["contents"][0]
+        part = content.parts[0]
+        assert part.inline_data is not None
+        assert part.inline_data.data == b"BINARY-DATA"
+        assert part.inline_data.mime_type == "application/octet-stream"
+        mock_warning.assert_called_once()
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_input_file_file_url_keeps_uri_shape(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_file",
+                                "filename": "sample.pdf",
+                                "file_url": "https://example.com/sample.pdf",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        content = kwargs["contents"][0]
+        part = content.parts[0]
+        assert part.file_data is not None
+        assert part.file_data.file_uri == "https://example.com/sample.pdf"
+        assert part.file_data.mime_type == "application/pdf"
+        assert part.inline_data is None
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_input_file_prefers_file_url_over_file_data(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_file",
+                                "filename": "sample.pdf",
+                                "file_url": "https://example.com/sample.pdf",
+                                "file_data": "%%%invalid%%%",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        kwargs = client._build_generate_content_kwargs(payload=payload, extra_params=None)
+
+        content = kwargs["contents"][0]
+        part = content.parts[0]
+        assert part.file_data is not None
+        assert part.file_data.file_uri == "https://example.com/sample.pdf"
+        assert part.inline_data is None
+
+    @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
+    def test_build_kwargs_with_invalid_input_file_file_data_raises_value_error(
+        self, mock_client_cls: MagicMock
+    ) -> None:
+        mock_client_cls.return_value = _build_mock_genai_client()
+        client = GeminiResponsesClient(model="gemini-3-flash-preview")
+        payload = CreateResponseBody.model_validate(
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_file",
+                                "filename": "sample.pdf",
+                                "file_data": "%%%invalid%%%",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        with pytest.raises(ValueError, match="Invalid input_file\\.file_data payload"):
+            client._build_generate_content_kwargs(payload=payload, extra_params=None)
 
     @patch("openresponses_impl_client_google.client.gemini_responses_client.genai.Client")
     def test_convert_function_call_output_requires_cache_hit(self, mock_client_cls: MagicMock) -> None:

@@ -463,10 +463,16 @@ class GeminiResponsesClient(BaseResponsesClient):
 
             if part_type == "input_file":
                 file_url = part_dict.get("file_url")
-                if file_url:
+                file_data = part_dict.get("file_data")
+                # OpenResponses allows either a URL-style reference (`file_url`) or raw base64
+                # payload (`file_data`) for input_file. Gemini uses different native fields for
+                # those two cases, so dispatch through a dedicated helper to keep the priority
+                # and validation rules in one place.
+                if file_url or file_data:
                     parts.append(
-                        self._build_media_part(
-                            uri=file_url,
+                        self._build_input_file_part(
+                            file_url=file_url,
+                            file_data=file_data,
                             filename=part_dict.get("filename"),
                         )
                     )
@@ -494,6 +500,63 @@ class GeminiResponsesClient(BaseResponsesClient):
 
         mime_type = self._guess_mime_type(uri=uri, filename=filename)
         return types.Part.from_uri(file_uri=uri, mime_type=mime_type)
+
+    def _build_input_file_part(
+        self,
+        *,
+        file_url: Any,
+        file_data: Any,
+        filename: Any,
+    ) -> types.Part:
+        """Convert an OpenResponses input_file item into a Gemini Part.
+
+        OpenResponses exposes two transport styles for input files:
+        - `file_url`: a provider-visible URI reference
+        - `file_data`: raw base64-encoded file bytes
+
+        We prefer `file_url` when both are present to preserve backward-compatible
+        behavior and to avoid unnecessarily inlining large payloads when the caller
+        has already provided a stable reference.
+        """
+        if isinstance(file_url, str) and file_url:
+            resolved_filename = filename if isinstance(filename, str) else None
+            return self._build_media_part(uri=file_url, filename=resolved_filename)
+
+        # `file_data` follows the OpenResponses schema and must contain raw base64 bytes.
+        # A `data:` URI belongs to image/video URL-style fields and is rejected here so that
+        # callers do not accidentally double-encode the payload semantics.
+        if not isinstance(file_data, str) or not file_data:
+            raise ValueError("input_file must include a non-empty file_url or file_data")
+        if file_data.startswith("data:"):
+            raise ValueError("input_file.file_data must be raw base64 data, not a data URI")
+
+        try:
+            # `validate=True` rejects malformed base64 early instead of silently accepting
+            # partially invalid input and forwarding corrupted bytes to Gemini.
+            decoded_file_data = base64.b64decode(file_data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(f"Invalid input_file.file_data payload: {exc}") from exc
+
+        resolved_filename = filename if isinstance(filename, str) else None
+        mime_type = self._guess_inline_file_mime_type(filename=resolved_filename)
+        return types.Part.from_bytes(data=decoded_file_data, mime_type=mime_type)
+
+    def _guess_inline_file_mime_type(self, *, filename: str | None) -> str:
+        """Infer the MIME type for inline input_file bytes.
+
+        Inline bytes do not carry a URI, so filename is the only lightweight hint
+        available at this adapter layer. When inference fails, fall back to the
+        generic binary MIME type rather than blocking the request.
+        """
+        mime_type, _ = mimetypes.guess_type(filename or "")
+        if mime_type:
+            return mime_type
+        logger.warning(
+            "Gemini client could not infer MIME type for inline input_file %s. "
+            "Falling back to application/octet-stream.",
+            filename or "<unknown>",
+        )
+        return "application/octet-stream"
 
     def _build_generate_content_config(
         self,
