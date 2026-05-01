@@ -21,6 +21,23 @@ from openresponses_impl_client_google.utils.gemini_response_model_util import (
     GeminiResponseModelUtil,
 )
 from test.unit_test.helpers.response_payloads import build_gemini_response_payload
+from test.unit_test.helpers.response_payloads import (
+    build_gemini_citation,
+    build_gemini_function_call_part,
+    build_gemini_logprobs_result,
+    build_gemini_text_part,
+)
+
+
+def _enum_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def _assert_valid_response(response: ResponseResource) -> None:
+    round_tripped = ResponseResource.model_validate(
+        response.model_dump(mode="json", exclude_none=False)
+    )
+    assert isinstance(round_tripped, ResponseResource)
 
 
 class TestGeminiResponseModelUtil:
@@ -254,3 +271,223 @@ class TestGeminiResponseModelUtil:
         assert isinstance(event, ErrorStreamingEvent)
         assert event.sequence_number == 7
         assert event.error.message == "bad chunk"
+
+
+class TestGeminiResponseModelUtilRegression:
+    """Regression coverage for response normalization."""
+
+    @pytest.mark.parametrize(
+        ("request_payload", "expected_format_type", "expected_verbosity"),
+        [
+            ({}, "text", None),
+            ({"text": {"verbosity": "high"}}, "text", "high"),
+            ({"text": {"format": {"type": "text"}}}, "text", None),
+            ({"text": {"format": {"type": "json_object"}}}, "json_object", None),
+        ],
+    )
+    def test_parse_response_normalizes_required_text_fields(
+        self,
+        request_payload: dict[str, Any],
+        expected_format_type: str,
+        expected_verbosity: str | None,
+    ) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(),
+            request_payload=request_payload,
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        assert result.text.format.type == expected_format_type
+        assert _enum_value(result.text.verbosity) == expected_verbosity
+
+    def test_parse_response_preserves_json_schema_text_config_fields(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(),
+            request_payload={
+                "text": {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "fruit_response",
+                        "description": "Fruit schema",
+                        "schema": {
+                            "type": "object",
+                            "properties": {"name": {"type": "string"}},
+                        },
+                        "strict": True,
+                    },
+                    "verbosity": "high",
+                }
+            },
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        assert isinstance(result, ResponseResource)
+        assert result.text.format.type == "json_schema"
+        assert result.text.format.name == "fruit_response"
+        assert result.text.format.description == "Fruit schema"
+        assert result.text.format.strict is True
+        assert _enum_value(result.text.verbosity) == "high"
+
+    def test_parse_response_fills_request_default_fields(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        assert _enum_value(result.tool_choice) == "none"
+        assert _enum_value(result.truncation) == "disabled"
+        assert result.parallel_tool_calls is False
+        assert result.top_p == 1.0
+        assert result.presence_penalty == 0.0
+        assert result.frequency_penalty == 0.0
+        assert result.top_logprobs == 0
+        assert result.temperature == 1.0
+        assert result.store is False
+        assert result.background is False
+        assert result.service_tier == "auto"
+        assert isinstance(result.metadata, dict)
+        assert result.metadata["gemini_model_version"] == "gemini-3-flash-preview-001"
+
+    def test_parse_response_plain_text_candidate_becomes_completed(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(
+                parts=[build_gemini_text_part("Hello from Gemini.")]
+            ),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        assert result.status == "completed"
+        assert result.error is None
+        assert result.incomplete_details is None
+
+    def test_parse_response_with_no_candidates_becomes_failed(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(overrides={"candidates": []}),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        assert result.status == "failed"
+        assert result.error is not None
+        assert result.error.code == "no_candidates"
+
+    def test_parse_response_with_function_call_is_completed_and_normalized(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(
+                parts=[
+                    build_gemini_function_call_part(
+                        call_id="call_1",
+                        name="lookup_weather",
+                        args={"city": "Tokyo", "unit": "celsius"},
+                    )
+                ]
+            ),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        assert result.status == "completed"
+        function_call = result.output[0].root
+        assert function_call.type == "function_call"
+        assert function_call.arguments == "{\"city\":\"Tokyo\",\"unit\":\"celsius\"}"
+        assert function_call.call_id == "call_1"
+        assert function_call.name == "lookup_weather"
+        assert _enum_value(function_call.status) == "completed"
+
+    def test_parse_response_normalizes_assistant_text_output_item(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(parts=[build_gemini_text_part("Hello world")]),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        message = result.output[0].root
+        assert message.type == "message"
+        assert message.content[0].type == "output_text"
+        assert message.content[0].text == "Hello world"
+
+    def test_parse_response_normalizes_reasoning_output_item(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(
+                parts=[build_gemini_text_part("Thinking step", thought=True)]
+            ),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        reasoning = result.output[0].root
+        assert reasoning.type == "reasoning"
+        assert reasoning.content[0].type == "reasoning_text"
+        assert reasoning.content[0].text == "Thinking step"
+        assert reasoning.summary[0].type == "summary_text"
+        assert reasoning.summary[0].text == "Thinking step"
+
+    def test_parse_response_normalizes_citations_into_annotations(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(
+                parts=[build_gemini_text_part("Hello world")],
+                candidate_overrides={
+                    "citation_metadata": {
+                        "citations": [
+                            build_gemini_citation(
+                                uri="https://example.com",
+                                title="Example",
+                                start_index=0,
+                                end_index=5,
+                            )
+                        ]
+                    }
+                },
+            ),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        annotation = result.output[0].root.content[0].annotations[0].root
+        assert annotation.type == "url_citation"
+        assert annotation.url == "https://example.com"
+        assert annotation.title == "Example"
+        assert annotation.start_index == 0
+        assert annotation.end_index == 5
+
+    def test_parse_response_normalizes_logprobs(self) -> None:
+        result = GeminiResponseModelUtil.parse_response(
+            payload=build_gemini_response_payload(
+                parts=[build_gemini_text_part("Hello")],
+                candidate_overrides={
+                    "logprobs_result": build_gemini_logprobs_result(
+                        chosen_tokens=[("Hello", -0.1)],
+                        top_tokens=[[("Hello", -0.1), ("Hi", -0.4)]],
+                    )
+                },
+            ),
+            request_payload={},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        _assert_valid_response(result)
+        logprob = result.output[0].root.content[0].logprobs[0]
+        assert logprob.token == "Hello"
+        assert logprob.logprob == pytest.approx(-0.1)
+        assert logprob.top_logprobs[1].token == "Hi"
+        assert logprob.top_logprobs[1].logprob == pytest.approx(-0.4)

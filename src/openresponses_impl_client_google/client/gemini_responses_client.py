@@ -797,8 +797,9 @@ class GeminiResponsesClient(BaseResponsesClient):
             }
 
         format_payload = text_payload.get("format") or {}
-        if format_payload.get("type") == "json_schema":
+        if format_payload.get("type") in {"json_object", "json_schema"}:
             response_mime_type = "application/json"
+        if format_payload.get("type") == "json_schema":
             response_json_schema = CopyUtil.deep_copy(
                 format_payload.get("schema") or format_payload.get("schema_")
             )
