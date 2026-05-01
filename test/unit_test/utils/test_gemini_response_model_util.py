@@ -154,6 +154,30 @@ class TestGeminiResponseModelUtil:
         assert result.text.format.schema_ is None
         assert result.text.format.strict is False
 
+    def test_resolve_text_config_defaults_format_for_verbosity_only(self) -> None:
+        result = GeminiResponseModelUtil._resolve_text_config(
+            request_dict={"text": {"verbosity": "high"}}
+        )
+
+        assert result == {
+            "format": {"type": "text"},
+            "verbosity": "high",
+        }
+
+    def test_parse_response_with_verbosity_only_text_config_defaults_to_text_format(self) -> None:
+        payload = build_gemini_response_payload()
+
+        result = GeminiResponseModelUtil.parse_response(
+            payload=payload,
+            request_payload={"text": {"verbosity": "high"}},
+            model="gemini-3-flash-preview",
+            default_response_id="fallback_resp",
+        )
+
+        assert result.text.format.type == "text"
+        assert result.text.verbosity is not None
+        assert result.text.verbosity.value == "high"
+
     def test_parse_response_with_reasoning_config_defaults_summary_to_none(self) -> None:
         payload = build_gemini_response_payload()
 

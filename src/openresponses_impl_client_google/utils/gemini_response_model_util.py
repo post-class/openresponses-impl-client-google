@@ -415,6 +415,7 @@ class GeminiResponseModelUtil:
                     "schema": None,
                     "strict": bool(format_config.get("strict", False)),
                 }
+            normalized.setdefault("format", {"type": "text"})
             normalized.setdefault("verbosity", None)
             return normalized
         return {"format": {"type": "text"}, "verbosity": None}
