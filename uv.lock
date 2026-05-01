@@ -572,7 +572,7 @@ wheels = [
 
 [[package]]
 name = "openresponses-impl-client-google"
-version = "0.2.8"
+version = "0.2.9"
 source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
